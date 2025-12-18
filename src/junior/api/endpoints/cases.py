@@ -9,6 +9,7 @@ from datetime import date, datetime
 from enum import Enum
 from uuid import uuid4
 
+
 def _try_build_cases_from_local_store() -> list[CaseHistory]:
     """Best-effort case list from locally stored documents.
 
@@ -89,12 +90,14 @@ def _try_build_cases_from_local_store() -> list[CaseHistory]:
 
 router = APIRouter()
 
+
 class CaseStatus(str, Enum):
     PENDING = "pending"
     DISPOSED = "disposed"
     RESERVED = "reserved"
     LISTED = "listed"
     ADJOURNED = "adjourned"
+
 
 class EventType(str, Enum):
     FILING = "filing"
@@ -106,10 +109,12 @@ class EventType(str, Enum):
     APPEAL = "appeal"
     OTHER = "other"
 
+
 class CaseParty(BaseModel):
     name: str
     role: str  # petitioner, respondent, intervenor, etc.
     advocate: Optional[str] = None
+
 
 class TimelineEvent(BaseModel):
     id: str
@@ -119,6 +124,7 @@ class TimelineEvent(BaseModel):
     description: Optional[str] = None
     documents: List[str] = []
     order_link: Optional[str] = None
+
 
 class CaseHistory(BaseModel):
     id: str
@@ -136,6 +142,7 @@ class CaseHistory(BaseModel):
     related_cases: List[str] = []
     notes: Optional[str] = None
 
+
 class CaseSearchRequest(BaseModel):
     query: Optional[str] = None
     court: Optional[str] = None
@@ -145,11 +152,16 @@ class CaseSearchRequest(BaseModel):
     party_name: Optional[str] = None
     advocate: Optional[str] = None
 
+
 class CaseListResponse(BaseModel):
     cases: List[CaseHistory]
     total: int
     page: int
     page_size: int
+
+
+
+
 
 @router.get("/", response_model=CaseListResponse)
 async def list_cases(
@@ -163,29 +175,30 @@ async def list_cases(
     List cases with filtering and pagination.
     """
     filtered = _try_build_cases_from_local_store()
-
+    
     if court:
         filtered = [c for c in filtered if court.lower() in c.court.lower()]
-
+    
     if status:
         filtered = [c for c in filtered if c.status == status]
-
+    
     if search:
         search_lower = search.lower()
-        filtered = [c for c in filtered if
-                    search_lower in c.title.lower() or
+        filtered = [c for c in filtered if 
+                    search_lower in c.title.lower() or 
                     search_lower in c.case_number.lower()]
-
+    
     total = len(filtered)
     start = (page - 1) * page_size
     end = start + page_size
-
+    
     return CaseListResponse(
         cases=filtered[start:end],
         total=total,
         page=page,
         page_size=page_size
     )
+
 
 @router.get("/{case_id}", response_model=CaseHistory)
 async def get_case(case_id: str):
@@ -195,8 +208,9 @@ async def get_case(case_id: str):
     for case in _try_build_cases_from_local_store():
         if case.id == case_id:
             return case
-
+    
     raise HTTPException(status_code=404, detail="Case not found")
+
 
 @router.post("/search", response_model=CaseListResponse)
 async def search_cases(request: CaseSearchRequest):
@@ -204,42 +218,43 @@ async def search_cases(request: CaseSearchRequest):
     Advanced search for cases.
     """
     filtered = _try_build_cases_from_local_store()
-
+    
     if request.court:
         filtered = [c for c in filtered if request.court.lower() in c.court.lower()]
-
+    
     if request.status:
         filtered = [c for c in filtered if c.status == request.status]
-
+    
     if request.from_date:
         filtered = [c for c in filtered if c.filing_date >= request.from_date]
-
+    
     if request.to_date:
         filtered = [c for c in filtered if c.filing_date <= request.to_date]
-
+    
     if request.party_name:
         name_lower = request.party_name.lower()
-        filtered = [c for c in filtered if
+        filtered = [c for c in filtered if 
                     any(name_lower in p.name.lower() for p in c.parties)]
-
+    
     if request.advocate:
         adv_lower = request.advocate.lower()
-        filtered = [c for c in filtered if
+        filtered = [c for c in filtered if 
                     any(p.advocate and adv_lower in p.advocate.lower() for p in c.parties)]
-
+    
     if request.query:
         query_lower = request.query.lower()
-        filtered = [c for c in filtered if
-                    query_lower in c.title.lower() or
+        filtered = [c for c in filtered if 
+                    query_lower in c.title.lower() or 
                     query_lower in c.case_number.lower() or
                     any(query_lower in s.lower() for s in c.subject_matter)]
-
+    
     return CaseListResponse(
         cases=filtered,
         total=len(filtered),
         page=1,
         page_size=len(filtered)
     )
+
 
 @router.get("/{case_id}/timeline", response_model=List[TimelineEvent])
 async def get_case_timeline(case_id: str):
@@ -253,6 +268,7 @@ async def get_case_timeline(case_id: str):
 
     raise HTTPException(status_code=404, detail="Case not found")
 
+
 @router.post("/{case_id}/timeline")
 async def add_timeline_event(case_id: str, event: TimelineEvent):
     """
@@ -263,6 +279,7 @@ async def add_timeline_event(case_id: str, event: TimelineEvent):
         status_code=501,
         detail="Case timeline persistence is not configured (no backing store).",
     )
+
 
 @router.get("/{case_id}/related")
 async def get_related_cases(case_id: str):
@@ -275,6 +292,7 @@ async def get_related_cases(case_id: str):
 
     raise HTTPException(status_code=404, detail="Case not found")
 
+
 @router.get("/upcoming-hearings/")
 async def get_upcoming_hearings(
     days: int = Query(30, ge=1, le=90),
@@ -283,15 +301,15 @@ async def get_upcoming_hearings(
     Get cases with upcoming hearings within specified days.
     """
     from datetime import timedelta
-
+    
     today = date.today()
     end_date = today + timedelta(days=days)
-
+    
     # Local-derived cases don't have hearing dates yet.
     upcoming = []
-
+    
     upcoming.sort(key=lambda x: x["hearing_date"])
-
+    
     return {
         "from_date": today,
         "to_date": end_date,

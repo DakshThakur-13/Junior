@@ -27,6 +27,7 @@ from junior.services.pdf_processor import PDFProcessor
 
 logger = get_logger(__name__)
 
+
 @dataclass(frozen=True)
 class IngestResult:
     document_id: str
@@ -35,9 +36,11 @@ class IngestResult:
     bytes_downloaded: int
     source_url: str
 
+
 def _safe_filename(seed: str) -> str:
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
     return digest
+
 
 class ManualIngestionService:
     def __init__(self):

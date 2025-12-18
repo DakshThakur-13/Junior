@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
@@ -34,7 +35,7 @@ async def upload_document(
 ):
     """
     Upload a legal document (PDF)
-
+    
     The document will be:
     1. Saved to storage
     2. PII redacted (locally)
@@ -45,22 +46,22 @@ async def upload_document(
     # Validate file type
     if not file.filename or not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
-
+    
     logger.info(f"Uploading document: {file.filename}")
-
+    
     try:
         # Save file temporarily
         document_id = str(uuid4())
         file_path = UPLOAD_DIR / f"{document_id}.pdf"
-
+        
         content = await file.read()
         with open(file_path, "wb") as f:
             f.write(content)
-
+        
         # Process PDF
         processor = PDFProcessor()
         document, chunks = processor.process_pdf(file_path, document_id)
-
+        
         # PII Redaction
         pii_redactor = PIIRedactor()
         redacted_chunks = []
@@ -68,7 +69,7 @@ async def upload_document(
             result = pii_redactor.redact(chunk.content)
             chunk.content = result.redacted_text
             redacted_chunks.append(chunk)
-
+        
         # Generate embeddings
         embedding_service = EmbeddingService()
         for chunk in redacted_chunks:
@@ -82,7 +83,7 @@ async def upload_document(
             store.save_chunks(document_id, redacted_chunks)
         except Exception as e:
             logger.warning(f"Local store save failed: {e}")
-
+        
         # Store in Supabase (optional)
         if settings.supabase_url and settings.supabase_key:
             try:
@@ -93,9 +94,9 @@ async def upload_document(
             except Exception as e:
                 # Don't block uploads if DB write fails.
                 logger.warning(f"Supabase store failed (continuing with local store): {e}")
-
+        
         # Keep uploaded PDF on disk (enables evidence vault / later viewing)
-
+        
         return DocumentUploadResponse(
             document_id=document_id,
             title=title or document.title,
@@ -104,25 +105,26 @@ async def upload_document(
             chunks=len(redacted_chunks),
             status="processed",
         )
-
+        
     except Exception as e:
         logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/search", response_model=list[DocumentSearchResult])
 async def search_documents(request: DocumentSearchRequest):
     """
     Search documents using semantic similarity
-
+    
     Returns ranked list of relevant document chunks.
     """
     logger.info(f"Searching: {request.query[:50]}...")
-
+    
     try:
         # Generate query embedding
         embedding_service = EmbeddingService()
         query_embedding = await embedding_service.get_embedding(request.query)
-
+        
         # Search database
         doc_repo = DocumentRepository()
         results = await doc_repo.search_by_embedding(
@@ -131,7 +133,7 @@ async def search_documents(request: DocumentSearchRequest):
             court_filter=request.court_filter,
             threshold=request.threshold,
         )
-
+        
         # Format results
         search_results = []
         for chunk, score in results:
@@ -144,22 +146,23 @@ async def search_documents(request: DocumentSearchRequest):
                 relevance_score=score,
                 citation=None,
             ))
-
+        
         return search_results
-
+        
     except Exception as e:
         logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/{document_id}")
 async def get_document(document_id: str):
     """
     Get document by ID
-
+    
     Returns full document with metadata.
     """
     logger.info(f"Fetching document: {document_id}")
-
+    
     # 1) Try Supabase first
     try:
         doc_repo = DocumentRepository()
@@ -202,6 +205,7 @@ async def get_document(document_id: str):
         logger.error(f"Get document error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/{document_id}/chunks")
 async def get_document_chunks(
     document_id: str,
@@ -210,7 +214,7 @@ async def get_document_chunks(
 ):
     """
     Get chunks from a document
-
+    
     Optionally filter by page or paragraph number.
     Used for the "Split-Screen Verification" feature.
     """
@@ -252,13 +256,14 @@ async def get_document_chunks(
         logger.error(f"Get document chunks error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.delete("/{document_id}")
 async def delete_document(document_id: str):
     """
     Delete a document and its chunks
     """
     logger.info(f"Deleting document: {document_id}")
-
+    
     # Placeholder - would delete from database
     return {
         "status": "deleted",

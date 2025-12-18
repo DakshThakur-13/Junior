@@ -27,11 +27,14 @@ class SupabaseClient:
                 logger.warning("Supabase credentials not configured")
                 raise ValueError("Supabase URL and Key must be configured")
 
-            self._client = create_client(
-                settings.supabase_url,
-                settings.supabase_key
+            # Prefer service role key on the backend if present.
+            # This avoids "empty results" caused by RLS policies when using the anon key.
+            key = settings.supabase_service_key or settings.supabase_key
+            self._client = create_client(settings.supabase_url, key)
+            logger.info(
+                "Supabase client initialized (%s)"
+                % ("service_role" if settings.supabase_service_key else "anon")
             )
-            logger.info("Supabase client initialized")
 
         return self._client
 

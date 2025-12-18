@@ -23,6 +23,16 @@ from junior.api.schemas import (
     LawyerProtocolsResponse,
     LawyerProtocolItem,
 )
+from pydantic import BaseModel
+
+class PreviewRequest(BaseModel):
+    url: str
+
+class PreviewResponse(BaseModel):
+    title: str
+    content: str
+    full_text_length: int
+    error: Optional[str] = None
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -289,7 +299,7 @@ async def search_official_sources(request: OfficialSourcesSearchRequest):
     try:
         from junior.services.official_sources import search_sources
 
-        items = search_sources(
+        items = await search_sources(
             request.query,
             category=request.category,
             authority=request.authority,
@@ -315,6 +325,25 @@ async def search_official_sources(request: OfficialSourcesSearchRequest):
         )
     except Exception as e:
         logger.error(f"Official sources search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/sources/preview", response_model=PreviewResponse)
+async def preview_source(request: PreviewRequest):
+    """
+    Fetch and preview content from a URL.
+    """
+    try:
+        from junior.services.official_sources import get_preview
+        
+        result = get_preview(request.url)
+        return PreviewResponse(
+            title=result.get("title", "Preview"),
+            content=result.get("content", ""),
+            full_text_length=result.get("full_text_length", 0),
+            error=result.get("error")
+        )
+    except Exception as e:
+        logger.error(f"Preview error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/sources/ingest", response_model=ManualIngestResponse)

@@ -9,7 +9,6 @@ import {
   FileText,
   Gavel,
   GripVertical,
-  Home,
   LogOut,
   MessageSquare,
   Paperclip,
@@ -84,6 +83,7 @@ type NodeData = {
     name: string;
     kind: 'photo' | 'video' | 'audio' | 'document' | 'other';
     sizeBytes?: number;
+    url?: string;
   }>;
 };
 
@@ -147,48 +147,150 @@ type ShepardizeResult = {
 const RADIAL_MENU_ITEMS: Array<{
   id: ActiveTab | 'home';
   icon: IconLike;
-function Sidebar({ activeTab, setActiveTab, onBack }: { activeTab: ActiveTab; setActiveTab: (t: ActiveTab) => void; onBack: () => void }) {
-  const tabs: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Detective Wall', icon: <LayoutIcon size={18} /> },
-    { id: 'strategy', label: 'Strategy & Analytics', icon: <BrainCircuit size={18} /> },
-    { id: 'drafting', label: 'Drafting Studio', icon: <FileText size={18} /> },
+  label: string;
+}> = [
+  { id: 'dashboard', icon: LayoutIcon, label: 'Detective Wall' },
+  { id: 'strategy', icon: BrainCircuit, label: 'Strategy & Analytics' },
+  { id: 'drafting', icon: FileText, label: 'Drafting Studio' },
+  { id: 'home', icon: LogOut, label: 'Exit Case' },
+];
+
+function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: ActiveTab; setActiveTab: (t: ActiveTab) => void; onBack: () => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  // Draggable state
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+    try {
+      const saved = localStorage.getItem('junior:radialPos');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    // Default to bottom-left (approximate)
+    return { x: 32, y: window.innerHeight - 96 };
+  });
+
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+  const hasDraggedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMove = (e: MouseEvent) => {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      
+      if (Math.abs(dx) + Math.abs(dy) > 5) {
+        hasDraggedRef.current = true;
+      }
+
+      setPos({
+        x: dragStartRef.current.initialX + dx,
+        y: dragStartRef.current.initialY + dy
+      });
+    };
+
+    const handleUp = () => {
+      setIsDragging(false);
+      if (hasDraggedRef.current) {
+        localStorage.setItem('junior:radialPos', JSON.stringify(pos));
+      }
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDragging, pos]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    setIsDragging(true);
+    hasDraggedRef.current = false;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      initialX: pos.x,
+      initialY: pos.y
+    };
+  };
+
+  // Fan layout for bottom-left corner (Quarter circle: 0 to 90 degrees)
+  const positions = [
+    { x: 0, y: -130 },       // 90° (Up)
+    { x: 65, y: -112.5 },    // 60°
+    { x: 112.5, y: -65 },    // 30°
+    { x: 130, y: 0 },        // 0° (Right)
   ];
 
   return (
-    <div className="w-64 bg-legal-surface/80 backdrop-blur-xl border-r border-white/10 flex flex-col z-50 h-screen shrink-0">
-      <div className="p-6 border-b border-white/10">
-        <div className="flex items-center gap-3 text-legal-gold">
-          <Scale size={24} />
-          <span className="font-serif text-xl font-bold tracking-wide">ZeroDay</span>
-        </div>
+    <div 
+      className="fixed z-50 flex flex-col items-center"
+      style={{ left: pos.x, top: pos.y }}
+    >
+      {/* Menu Items */}
+      <div className="absolute bottom-4 left-4 w-0 h-0">
+        {RADIAL_MENU_ITEMS.map((item, idx) => {
+          const pos = positions[idx] || { x: 0, y: 0 };
+          const isVisible = isOpen;
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => {
+                if (item.id === 'home') {
+                  onBack();
+                } else {
+                  setActiveTab(item.id as ActiveTab);
+                }
+                setIsOpen(false);
+              }}
+              className={`absolute -ml-6 -mt-6 flex items-center justify-center w-12 h-12 rounded-full glass-panel border backdrop-blur-xl shadow-xl transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) group
+                ${activeTab === item.id 
+                  ? 'bg-legal-gold/20 border-legal-gold text-legal-gold shadow-glow scale-110' 
+                  : 'bg-legal-surface/90 border-white/10 text-slate-400 hover:text-legal-gold hover:border-legal-gold/50 hover:scale-110'
+                }
+                ${isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none scale-50'}
+              `}
+              style={{
+                transform: isVisible ? `translate(${pos.x}px, ${pos.y}px)` : 'translate(0, 0)',
+                transitionDelay: isVisible ? `${idx * 50}ms` : '0ms'
+              }}
+              title={item.label}
+            >
+              <item.icon size={20} strokeWidth={2.5} />
+              {/* Label */}
+              <span className={`absolute left-1/2 -translate-x-1/2 -bottom-8 px-2 py-1 text-[10px] font-bold uppercase tracking-wider bg-legal-surface/90 border border-white/10 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50`}>
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="flex-1 py-6 px-3 space-y-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${
-              activeTab === tab.id
-                ? 'bg-legal-gold/10 text-legal-gold border border-legal-gold/20 shadow-glow'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
-            }`}
-          >
-            {tab.icon}
-            <span>{tab.label}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="p-4 border-t border-white/10">
-        <button
-          onClick={onBack}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors"
-        >
-          <LogOut size={18} />
-          <span>Exit Case</span>
-        </button>
-      </div>
+      {/* Main Toggle Button */}
+      <button
+        onMouseDown={handleMouseDown}
+        onClick={() => {
+          if (!hasDraggedRef.current) {
+            setIsOpen(!isOpen);
+          }
+        }}
+        className={`relative z-10 flex items-center justify-center w-16 h-16 rounded-full glass-panel border-2 shadow-2xl transition-all duration-300 group cursor-move
+          ${isOpen 
+            ? 'bg-legal-gold text-legal-surface border-legal-gold rotate-45 scale-110 shadow-glow' 
+            : 'bg-legal-surface/90 text-legal-gold border-legal-gold/50 hover:border-legal-gold hover:scale-105'
+          }`}
+      >
+        {isOpen ? <Plus size={32} strokeWidth={3} /> : <Scale size={32} strokeWidth={2.5} />}
+        
+        {/* Orb Glow Effect */}
+        {!isOpen && (
+          <span className="absolute inset-0 rounded-full bg-legal-gold/20 animate-pulse"></span>
+        )}
+      </button>
     </div>
   );
 }
@@ -209,7 +311,7 @@ function ToolsDock(props: {
   ];
 
   return (
-    <div className="fixed top-20 left-4 right-4 sm:left-40 sm:right-auto sm:top-24 z-40 flex flex-wrap gap-2 max-w-[calc(100vw-2rem)] sm:max-w-none animate-fade-in-left">
+    <div className="absolute top-full right-0 mt-3 flex flex-col gap-2 min-w-[140px] animate-fade-in-down origin-top-right z-50">
       {tools.map((tool) => (
         <button
           key={tool.id}
@@ -220,13 +322,13 @@ function ToolsDock(props: {
               props.setActiveTool(tool.id);
             }
           }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full border backdrop-blur-md shadow-lg transition-all duration-200
+          className={`flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-xl shadow-xl transition-all duration-200 text-left
             ${
               tool.id === 'remove' && props.isRemoveMode
                 ? 'bg-rose-500/20 border-rose-500 text-rose-400'
                 : props.activeTool === tool.id
-                  ? 'bg-amber-500 text-slate-900 border-amber-400'
-                  : 'bg-black/40 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white hover:border-white/20'
+                  ? 'bg-legal-gold text-slate-900 border-legal-gold'
+                  : 'bg-legal-surface/90 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white hover:border-white/20'
             }`}
         >
           <tool.icon size={16} />
@@ -655,7 +757,24 @@ function NodeDetailsPanel(props: {
               {attachments.map((a, idx) => (
                 <div key={idx} className="flex items-center justify-between text-xs text-slate-200 bg-slate-950/30 border border-slate-700/40 rounded-lg px-2 py-1">
                   <span className="truncate">{a.name}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">{a.kind.toUpperCase()}</span>
+                  <div className="flex items-center gap-2">
+                    {a.url && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          window.open(a.url, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
+                        aria-label={`Open ${a.name}`}
+                        title="Open source"
+                      >
+                        OPEN
+                      </button>
+                    )}
+                    <span className="text-[10px] text-slate-400 font-mono">{a.kind.toUpperCase()}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -674,6 +793,9 @@ function ChatPanel(props: {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   isLoading: boolean;
+  suggestActions: boolean;
+  onToggleSuggestActions: () => void;
+  caseTitle?: string;
 }) {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -710,17 +832,36 @@ function ChatPanel(props: {
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.6)]"></span>
               <span className="text-[10px] text-emerald-400 font-medium tracking-wider uppercase">Online</span>
+              {props.caseTitle && (
+                <span className="text-[10px] text-slate-400 bg-black/30 border border-white/10 px-2 py-0.5 rounded-full ml-2 truncate max-w-[120px]" title={props.caseTitle}>
+                  {props.caseTitle}
+                </span>
+              )}
             </div>
           </div>
         </div>
-        <button
-          onClick={props.toggleChat}
-          className="p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors"
-          title="Close"
-          aria-label="Close"
-        >
-          <X size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={props.onToggleSuggestActions}
+            className={`text-[10px] uppercase tracking-wide px-3 py-1 rounded-full border transition-all ${
+              props.suggestActions
+                ? 'border-legal-gold/40 bg-legal-gold/10 text-legal-gold'
+                : 'border-white/10 text-slate-400 hover:text-legal-gold hover:border-legal-gold/40'
+            }`}
+            title="Toggle proactive action suggestions"
+          >
+            {props.suggestActions ? 'Action Hints On' : 'Action Hints Off'}
+          </button>
+          <button
+            onClick={props.toggleChat}
+            className="p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors"
+            title="Close"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -915,13 +1056,12 @@ function ResearchPanel(props: {
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Fallback list if backend is unavailable.
-  const fallback: ResearchItem[] = [
-    { id: 'fallback_india_code', title: 'India Code', type: 'Official', summary: 'Central Acts/Rules/Regulations (official).', source: 'Legislative Department', url: 'https://www.indiacode.nic.in/', authority: 'official' },
-    { id: 'fallback_egazette', title: 'e-Gazette of India', type: 'Official', summary: 'Gazette publications and notifications.', source: 'Department of Publication', url: 'https://egazette.nic.in/', authority: 'official' },
-    { id: 'fallback_sci', title: 'Supreme Court — Judgments', type: 'Official', summary: 'SC judgments/orders (official portal).', source: 'Supreme Court of India', url: 'https://main.sci.gov.in/judgments', authority: 'official' },
-    { id: 'fallback_ecourts', title: 'eCourts Services', type: 'Official', summary: 'Case status/orders/cause lists across courts.', source: 'eCommittee (SCI)', url: 'https://ecourts.gov.in/', authority: 'official' },
-  ];
+  // New State for Preview and Citator
+  const [previewItem, setPreviewItem] = useState<ResearchItem | null>(null);
+  const [previewContent, setPreviewContent] = useState<string>('');
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [citationChecks, setCitationChecks] = useState<Record<string, { status: string; emoji: string; message: string }>>({});
+  const [checkingCitation, setCheckingCitation] = useState<string | null>(null);
 
   useEffect(() => {
     if (!props.isOpen) return;
@@ -957,8 +1097,7 @@ function ResearchPanel(props: {
       } catch (e) {
         if (!cancelled && !(e instanceof DOMException && e.name === 'AbortError')) {
           setLoadError('Sources unavailable (backend not running).');
-          // Keep UI useful even if backend is down.
-          setItems(fallback);
+          setItems([]);
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -972,6 +1111,51 @@ function ResearchPanel(props: {
       controller.abort();
     };
   }, [props.isOpen, query, category]);
+
+  const handlePreview = async (item: ResearchItem) => {
+    if (!item.url) return;
+    setPreviewItem(item);
+    setPreviewContent('');
+    setIsPreviewLoading(true);
+    try {
+      const res = await fetch('/api/v1/research/sources/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: item.url }),
+      });
+      if (!res.ok) throw new Error('Failed to load preview');
+      const data = await res.json();
+      setPreviewContent(data.content || 'No content available.');
+    } catch (e) {
+      setPreviewContent('Failed to load preview. Please open the source directly.');
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const handleCheckAuthority = async (e: React.MouseEvent, item: ResearchItem) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const query = item.title; 
+    setCheckingCitation(item.id);
+    try {
+       const safe = encodeURIComponent(query);
+       const res = await fetch(`/api/v1/research/shepardize/${safe}`);
+       const data = await res.json();
+       setCitationChecks(prev => ({
+          ...prev,
+          [item.id]: {
+              status: data.status || 'unknown',
+              emoji: data.status_emoji || '⚪',
+              message: data.message || ''
+          }
+       }));
+    } catch (e) {
+       // ignore
+    } finally {
+       setCheckingCitation(null);
+    }
+  };
 
   const filtered = items.filter(
     (item) =>
@@ -1026,7 +1210,6 @@ function ResearchPanel(props: {
         <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium mb-2">
           <Sparkles size={10} className="text-legal-gold" />
           <span>AI RECOMMENDATIONS</span>
-
         </div>
 
         {isLoading && (
@@ -1081,24 +1264,59 @@ function ResearchPanel(props: {
                 <ShieldAlert size={10} />
                 <span className="truncate">{item.source}</span>
               </div>
-              {item.url && (
-                <button
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                  }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.open(item.url, '_blank', 'noopener,noreferrer');
-                  }}
-                  className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
-                  aria-label={`Open ${item.title}`}
-                  title="Open source"
-                >
-                  OPEN
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Smart Citator / Traffic Light */}
+                {citationChecks[item.id] ? (
+                    <div className="flex items-center gap-1" title={citationChecks[item.id].message}>
+                        <span className="text-sm">{citationChecks[item.id].emoji}</span>
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => handleCheckAuthority(e, item)}
+                        className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-400 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
+                        disabled={checkingCitation === item.id}
+                    >
+                        {checkingCitation === item.id ? '...' : 'CHECK'}
+                    </button>
+                )}
+
+                {/* Preview Button */}
+                {item.url && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handlePreview(item);
+                    }}
+                    className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
+                  >
+                    PREVIEW
+                  </button>
+                )}
+
+                {item.url && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      window.open(item.url, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
+                    aria-label={`Open ${item.title}`}
+                    title="Open source"
+                  >
+                    OPEN
+                  </button>
+                )}
+              </div>
             </div>
           </button>
         ))}
@@ -1107,6 +1325,36 @@ function ResearchPanel(props: {
           <div className="text-xs text-slate-500">No sources found.</div>
         )}
       </div>
+
+      {/* Preview Modal */}
+      {previewItem && (
+        <div className="absolute inset-0 z-50 bg-legal-bg flex flex-col animate-fade-in">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-legal-surface">
+                <h3 className="font-serif font-bold text-sm text-legal-text truncate pr-4">{previewItem.title}</h3>
+                <button onClick={() => setPreviewItem(null)} className="text-slate-400 hover:text-white">
+                    <X size={18} />
+                </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-serif">
+                {isPreviewLoading ? (
+                    <div className="flex items-center justify-center h-full text-slate-500">
+                        <Sparkles className="animate-spin mr-2" size={16} />
+                        Loading preview...
+                    </div>
+                ) : (
+                    previewContent
+                )}
+            </div>
+            <div className="p-3 border-t border-white/10 bg-legal-surface/50 flex justify-end">
+                <button 
+                    onClick={() => window.open(previewItem.url, '_blank')}
+                    className="text-xs text-legal-gold hover:underline"
+                >
+                    Open Full Source External
+                </button>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2505,6 +2753,24 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     { from: 3, to: 4, label: 'Supports', type: 'normal' },
   ]);
 
+  const caseId = props.activeCase?.id ? String(props.activeCase.id) : 'default';
+  const caseTitle = props.activeCase?.title ?? 'Current Matter';
+  const chatStorageKey = useMemo(() => `junior:chat:${caseId}`, [caseId]);
+  const loadStoredMessages = useCallback(
+    (key: string): ChatMessage[] | null => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as ChatMessage[];
+      } catch {
+        // ignore malformed storage
+      }
+      return null;
+    },
+    []
+  );
+
   const [wallIsAnalyzing, setWallIsAnalyzing] = useState(false);
   const [wallNodeSeverity, setWallNodeSeverity] = useState<Record<string, WallInsightSeverity | undefined>>({});
   const [wallAnalyzeStatus, setWallAnalyzeStatus] = useState<'idle' | 'ok' | 'llm_off' | 'backend_off'>('idle');
@@ -2656,19 +2922,34 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
       nextNodes = [...prev, ...created];
       return nextNodes;
     });
-
-    void handleAnalyzeWall({ nodes: nextNodes, connections, silent: true });
   };
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'assistant',
-      content:
-        "Welcome! I'm Junior, your AI Legal Assistant. I've analyzed the case documents on your canvas.\n\nThere's a critical timeline discrepancy between the Witness Statement and CCTV evidence. Would you like me to draft a Discharge Petition?",
-      hasConflict: true,
-      conflictDetail: 'Witness A claims seeing the accused at 10:00 PM, but CCTV shows him at ATM at 10:05 PM, 5km away.',
-    },
-  ]);
+  const defaultWelcome = useMemo<ChatMessage[]>(
+    () => [
+      {
+        role: 'assistant',
+        content: `Welcome to ${caseTitle}. I can read your wall, spot conflicts, and draft next steps. If you add evidence, I'll cross-check timelines and witnesses.`,
+      },
+    ],
+    [caseTitle]
+  );
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages(chatStorageKey) ?? defaultWelcome);
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [suggestActions, setSuggestActions] = useState(true);
+
+  useEffect(() => {
+    setMessages(loadStoredMessages(chatStorageKey) ?? defaultWelcome);
+    setChatSessionId(null);
+  }, [chatStorageKey, defaultWelcome, loadStoredMessages]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(chatStorageKey, JSON.stringify(messages.slice(-50)));
+    } catch {
+      // ignore storage errors
+    }
+  }, [messages, chatStorageKey]);
 
   useEffect(() => {
     if (!draggedResearchItem) return;
@@ -2694,7 +2975,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           rotation: Math.random() * 6 - 3,
           pinColor: 'blue',
           source: draggedResearchItem.item.source,
-          attachments: [{ name: draggedResearchItem.item.title, kind: 'document' }],
+          attachments: [{ name: draggedResearchItem.item.title, kind: 'document', url: draggedResearchItem.item.url }],
         };
 
         let nextNodes: NodeData[] = [];
@@ -2789,28 +3070,31 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     setMessages((prev) => [...prev, { role: 'user', content: message }]);
     setIsLoading(true);
     try {
+      const payload: Record<string, unknown> = { message, language: 'en' };
+      if (chatSessionId) payload.session_id = chatSessionId;
+
       const response = await fetch('/api/v1/chat/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, language: 'en' }),
+        body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
-        const data = (await response.json()) as { message?: { content?: string } };
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: data.message?.content || "I've processed your request." },
-        ]);
-      } else {
-        throw new Error('API Error');
+      const responseText = await response.text();
+      if (!response.ok) {
+        throw new Error(responseText || `Request failed (${response.status})`);
       }
-    } catch {
+
+      const data = JSON.parse(responseText) as { session_id?: string; message?: { content?: string } };
+      if (data.session_id) setChatSessionId(data.session_id);
+
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.message?.content || "I've processed your request." }]);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content:
-            "I'm in demo mode. In production, I'd analyze your query against Indian case law databases with verified citations.\n\nTry asking about:\n- Discharge petition strategies\n- Timeline conflict analysis\n- Supreme Court rulings",
+          content: `Chat error: ${errorMessage}`,
         },
       ]);
     }
@@ -2825,7 +3109,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   if (activeTab === 'strategy') {
     return (
       <div className="flex min-h-screen w-full text-legal-text font-sans overflow-hidden relative bg-legal-bg">
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
+        <RadialMenu activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
         <StrategyAnalytics activeCase={props.activeCase} />
       </div>
     );
@@ -2834,7 +3118,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   if (activeTab === 'drafting') {
     return (
       <div className="flex min-h-screen w-full text-legal-text font-sans overflow-hidden relative bg-legal-bg">
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
+        <RadialMenu activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
         <DraftingStudio />
       </div>
     );
@@ -2844,19 +3128,10 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     <div className={`flex min-h-screen w-full text-legal-text font-sans overflow-hidden relative bg-legal-bg ${isRemoveMode ? 'cursor-crosshair' : ''}`}>
       <div className="absolute inset-0 container-bg z-0"></div>
       
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
+      <RadialMenu activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
 
       <div className="flex-1 relative flex flex-col h-screen overflow-hidden">
-        <ToolsDock
-          isOpen={isToolsOpen}
-          activeTool={activeTool}
-          setActiveTool={setActiveTool}
-          onToggleRemove={() => {
-            setIsRemoveMode(!isRemoveMode);
-            setActiveTool('remove');
-          }}
-          isRemoveMode={isRemoveMode}
-        />
+
         <ResearchPanel isOpen={isToolsOpen && activeTool === 'research'} onClose={() => setActiveTool(null)} onDragStart={handleResearchDragStart} />
         <VaultPanel isOpen={isToolsOpen && activeTool === 'vault'} onClose={() => setActiveTool(null)} onDragStart={handleResearchDragStart} />
 
@@ -2993,6 +3268,16 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
                 </svg>
               </button>
             </div>
+            <ToolsDock
+              isOpen={isToolsOpen}
+              activeTool={activeTool}
+              setActiveTool={setActiveTool}
+              onToggleRemove={() => {
+                setIsRemoveMode(!isRemoveMode);
+                setActiveTool('remove');
+              }}
+              isRemoveMode={isRemoveMode}
+            />
           </div>
 
           <div className="absolute bottom-6 left-6 z-30 glass-panel border border-white/10 rounded-lg px-4 py-2 shadow-xl">
@@ -3088,6 +3373,9 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           messages={messages}
           onSendMessage={handleSendMessage}
           isLoading={isLoading}
+          suggestActions={suggestActions}
+          onToggleSuggestActions={() => setSuggestActions((v) => !v)}
+          caseTitle={caseTitle}
         />
 
         {selectedNode !== null && (

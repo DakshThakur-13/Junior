@@ -8,8 +8,28 @@ We keep the shape compatible with the frontend ResearchPanel (id/title/type/summ
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Iterable, Optional
+import json
+import re
+from cachetools import TTLCache
+from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage
+from junior.core import get_logger, settings
+
+logger = get_logger(__name__)
+
+# In-memory cache for search results (100 queries, 1 hour TTL)
+SEARCH_CACHE = TTLCache(maxsize=100, ttl=3600)
+
+# Try to import DDGS, but don't crash if it fails
+try:
+    from ddgs import DDGS
+    HAS_DDGS = True
+except ImportError:
+    logger.warning("ddgs not installed. Live search disabled.")
+    HAS_DDGS = False
 
 @dataclass(frozen=True)
 class OfficialSource:
@@ -22,6 +42,232 @@ class OfficialSource:
     publisher: str
     authority: str  # official | study
     tags: tuple[str, ...] = ()
+
+# Define trusted domains for live search
+TRUSTED_DOMAINS = [
+    # Government / Official
+    "indiacode.nic.in",
+    "egazette.nic.in",
+    "sci.gov.in",
+    "ecourts.gov.in",
+    "legislative.gov.in",
+    "bombayhighcourt.nic.in",
+    "delhihighcourt.nic.in",
+    "hc.ap.nic.in",
+    "karnatakajudiciary.kar.nic.in",
+    "hcmadras.tn.nic.in",
+    "allahabadhighcourt.in",
+    
+    # Legal Databases (Case Law)
+    "indiankanoon.org",
+    "casemine.com",
+    "manupatra.com",
+    "scconline.com",
+    "legalcrystal.com",
+    
+    # Legal News & Analysis
+    "livelaw.in",
+    "barandbench.com",
+    "legalserviceindia.com",
+    "blog.ipleaders.in",
+    "mondaq.com",
+    "pathlegal.in",
+    "lawrato.com",
+    "vakilno1.com"
+]
+
+async def expand_query(user_query: str, category: Optional[str] = None) -> list[str]:
+    """
+    Uses LLM to generate specific search queries from a broad user intent.
+    Optimized for speed using a smaller model and async execution.
+    """
+    # If query is very specific (looks like a citation), don't expand
+    if any(x in user_query.lower() for x in [" v. ", " vs ", "air ", "scc ", "scr "]):
+        return [user_query]
+
+    if not settings.groq_api_key:
+        return [f"{user_query} India law"]
+
+    try:
+        # Use a faster model for query expansion
+        llm = ChatGroq(
+            model="llama-3.1-8b-instant", # Faster than default
+            temperature=0.2,
+            api_key=settings.groq_api_key
+        )
+        
+        category_instruction = ""
+        if category:
+            if category.lower() == "precedent":
+                category_instruction = "Focus ONLY on finding case law, judgments, and citations."
+            elif category.lower() == "act":
+                category_instruction = "Focus ONLY on finding Acts, Sections, and Statutes."
+            elif category.lower() == "study":
+                category_instruction = "Focus on legal analysis, articles, and commentaries."
+
+        prompt = f"""You are an expert legal search assistant. 
+        Convert the user's query into 2-3 specific, effective search queries for finding Indian laws.
+        
+        User Query: "{user_query}"
+        Context: {category_instruction}
+        
+        Rules:
+        1. Return ONLY a JSON list of strings.
+        2. Keep queries short and keyword-heavy.
+        
+        Example Output:
+        ["IPC Section 390 robbery", "Supreme Court judgment robbery"]
+        """
+        
+        response = await llm.ainvoke([
+            SystemMessage(content="Output JSON only."),
+            HumanMessage(content=prompt)
+        ])
+        
+        content = response.content.strip()
+        if "```" in content:
+            content = content.split("```")[1].replace("json", "").strip()
+            
+        queries = json.loads(content)
+        if isinstance(queries, list):
+            if not queries:
+                return [f"{user_query} India law"]
+            return queries[:3] 
+            
+    except Exception as e:
+        logger.error(f"Query expansion failed: {e}")
+        
+    return [f"{user_query} India law"]
+
+async def search_live(query: str, category: Optional[str] = None, limit: int = 10) -> list[OfficialSource]:
+    """
+    Perform a live web search restricted to trusted legal domains.
+    Uses parallel execution for speed + Caching.
+    """
+    if not HAS_DDGS:
+        return []
+
+    # Check Cache
+    cache_key = f"{query}::{category}::{limit}"
+    if cache_key in SEARCH_CACHE:
+        logger.info(f"Serving cached results for: {query}")
+        return SEARCH_CACHE[cache_key]
+
+    # 1. Determine Search Strategy based on Category
+    base_queries = [query]
+    
+    # If category is specific, we might not need expansion, or we expand differently
+    # But let's run expansion in parallel with a direct search
+    
+    tasks = [expand_query(query, category)]
+    
+    # Execute expansion
+    expanded_results = await asyncio.gather(*tasks)
+    search_queries = expanded_results[0]
+    
+    # Add the original query if not present, but optimized for the category
+    if category:
+        if category.lower() == "precedent":
+             search_queries.append(f"{query} judgment Supreme Court India")
+        elif category.lower() == "act":
+             search_queries.append(f"{query} Act India code")
+    
+    # Deduplicate queries
+    search_queries = list(set(search_queries))
+    logger.info(f"Searching for: {search_queries} (Category: {category})")
+
+    all_results = []
+    seen_urls = set()
+    
+    async def run_single_search(q: str):
+        local_results = []
+        try:
+            # Construct the actual query string for DDG
+            # We can use site: operators here based on category for the "Direct" search
+            # but DDG sometimes fails with too many operators.
+            # Let's stick to keyword boosting + post-filtering, but maybe add one "site:" query
+            
+            full_query = q
+            if "india" not in q.lower():
+                full_query += " India"
+            
+            # Category specific boosting
+            if category:
+                if category.lower() == "precedent" and "judgment" not in full_query.lower():
+                    full_query += " judgment"
+                elif category.lower() == "act" and "act" not in full_query.lower():
+                    full_query += " act"
+
+            # Run synchronous DDGS in a thread to avoid blocking the event loop
+            def _do_search():
+                with DDGS() as ddgs:
+                    return list(ddgs.text(full_query, region="in-en", max_results=10))
+            
+            search_results = await asyncio.to_thread(_do_search)
+            
+            for res in search_results:
+                url = res.get('href', '')
+                if url in seen_urls: continue
+                
+                # Domain Filter
+                matched_domain = False
+                for domain in TRUSTED_DOMAINS:
+                    if domain in url:
+                        matched_domain = True
+                        break
+                
+                # Category Strictness
+                # If user asked for "Official", strictly enforce .gov.in / .nic.in
+                if category and category.lower() == "official":
+                    if not any(d in url for d in ["gov.in", "nic.in", "sci.gov.in"]):
+                        matched_domain = False
+
+                if not matched_domain: continue
+
+                seen_urls.add(url)
+                
+                # Determine type
+                doc_type = "Official"
+                title_lower = res['title'].lower()
+                if "judgment" in title_lower or "vs" in title_lower or "court" in title_lower:
+                    doc_type = "Precedent"
+                elif "act" in title_lower or "section" in title_lower or "code" in title_lower:
+                    doc_type = "Act"
+                
+                # Determine authority
+                authority = "official"
+                if any(x in url for x in ["livelaw", "barandbench", "indiankanoon", "legalservice", "ipleaders"]):
+                    authority = "study"
+
+                local_results.append(OfficialSource(
+                    id=f"live_{abs(hash(url))}",
+                    title=res['title'],
+                    type=doc_type,
+                    summary=res['body'],
+                    source=url.split('/')[2],
+                    url=url,
+                    publisher="Web Search",
+                    authority=authority,
+                    tags=("live_search",)
+                ))
+        except Exception as e:
+            logger.warning(f"Search failed for '{q}': {e}")
+        return local_results
+
+    # Run all searches in parallel
+    search_tasks = [run_single_search(q) for q in search_queries]
+    results_lists = await asyncio.gather(*search_tasks)
+    
+    for r_list in results_lists:
+        all_results.extend(r_list)
+
+    final_results = all_results[:limit]
+    
+    # Cache the results
+    SEARCH_CACHE[cache_key] = final_results
+    
+    return final_results
+
 
 # NOTE: Keep this list focused and genuinely official.
 # Avoid third-party aggregators.
@@ -266,50 +512,87 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
     ).lower()
     return q in hay
 
-def get_source_by_id(source_id: str) -> Optional[OfficialSource]:
-    """Lookup a curated source by id."""
-    sid = (source_id or "").strip()
-    if not sid:
-        return None
-    for item in CATALOG:
-        if item.id == sid:
-            return item
-    return None
+def get_preview(url: str) -> dict:
+    """
+    Fetches and extracts main content from a URL for instant preview.
+    Uses trafilatura for robust extraction.
+    """
+    try:
+        import trafilatura
+        
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return {"error": "Could not fetch URL"}
+            
+        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        if not text:
+            return {"error": "Could not extract text"}
+            
+        # Basic summarization (first 1000 chars)
+        summary = text[:1000] + "..." if len(text) > 1000 else text
+        
+        return {
+            "title": trafilatura.extract(downloaded, only_with_metadata=True).get('title', 'Preview'),
+            "content": summary,
+            "full_text_length": len(text)
+        }
+    except Exception as e:
+        logger.error(f"Preview failed for {url}: {e}")
+        return {"error": str(e)}
 
-def search_sources(
+
+async def search_sources(
     query: str = "",
     *,
     category: Optional[str] = None,
     authority: Optional[str] = None,
     limit: int = 25,
 ) -> list[OfficialSource]:
-    """Search the curated sources catalog.
+    """Search the curated sources catalog AND live web."""
+    
+    # 1. Search static catalog
+    catalog_results = []
+    for item in CATALOG:
+        # Filter by category if provided
+        if category and category.lower() != "all":
+            if item.type.lower() != category.lower():
+                continue
 
-    Args:
-        query: Free-text query.
-        category: Optional type filter (Official/Study/Act/etc).
-        authority: Optional authority filter (official/study).
-        limit: Max items.
+        # Filter by authority if provided
+        if authority:
+            if item.authority.lower() != authority.lower():
+                continue
 
-    Returns:
-        List of matching sources.
-    """
+        # Filter by text query
+        if _matches_query(item, query):
+            catalog_results.append(item)
 
-    cat = (category or "").strip()
-    auth = (authority or "").strip().lower()
+    # 2. If query is present, perform live search
+    live_results = []
+    if query and len(query) > 3:
+        try:
+            live_results = await search_live(query, category=category, limit=limit)
+            
+            # Apply post-search filters to live results
+            if category and category.lower() != "all":
+                live_results = [r for r in live_results if r.type.lower() == category.lower()]
+            if authority:
+                live_results = [r for r in live_results if r.authority.lower() == authority.lower()]
+                
+        except Exception as e:
+            logger.error(f"Error in live search integration: {e}")
 
-    def _ok(it: OfficialSource) -> bool:
-        if cat and it.type.lower() != cat.lower():
-            return False
-        if auth and it.authority.lower() != auth:
-            return False
-        return _matches_query(it, query)
+    # 3. Combine results (Live first if query exists, else Catalog)
+    combined = live_results + catalog_results
+    
+    # Deduplicate by URL
+    seen_urls = set()
+    unique_results = []
+    for item in combined:
+        if item.url not in seen_urls:
+            unique_results.append(item)
+            seen_urls.add(item.url)
 
-    items = [it for it in CATALOG if _ok(it)]
+    return unique_results[:limit]
 
-    # Sort: official first, then alphabetical.
-    def _rank(it: OfficialSource) -> tuple[int, str]:
-        return (0 if it.authority == "official" else 1, it.title.lower())
 
-    items.sort(key=_rank)
-    return items[: max(1, int(limit or 25))]

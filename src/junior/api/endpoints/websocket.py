@@ -22,33 +22,35 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
         self.session_connections: Dict[str, Set[str]] = {}
-
+    
     async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
         self.active_connections[client_id] = websocket
         logger.info(f"Client {client_id} connected. Total connections: {len(self.active_connections)}")
-
+    
     def disconnect(self, client_id: str):
         if client_id in self.active_connections:
             del self.active_connections[client_id]
             logger.info(f"Client {client_id} disconnected. Total connections: {len(self.active_connections)}")
-
+    
     async def send_message(self, client_id: str, message: dict):
         if client_id in self.active_connections:
             await self.active_connections[client_id].send_json(message)
-
+    
     async def broadcast(self, session_id: str, message: dict):
         if session_id in self.session_connections:
             for client_id in self.session_connections[session_id]:
                 await self.send_message(client_id, message)
 
+
 manager = ConnectionManager()
+
 
 @router.websocket("/ws/research/{client_id}")
 async def websocket_research(websocket: WebSocket, client_id: str):
     """
     WebSocket endpoint for streaming research responses.
-
+    
     Message Protocol:
     - Client sends: {"type": "query", "query": "...", "language": "en", "session_id": "..."}
     - Server sends: {"type": "status", "status": "researching", "node": "researcher"}
@@ -59,47 +61,48 @@ async def websocket_research(websocket: WebSocket, client_id: str):
     - Server sends: {"type": "error", "message": "..."}
     """
     await manager.connect(websocket, client_id)
-
+    
     try:
         workflow = LegalResearchWorkflow()
-
+        
         while True:
             # Receive message from client
             data = await websocket.receive_text()
             message = json.loads(data)
-
+            
             if message.get("type") == "query":
                 query = message.get("query", "")
                 language = message.get("language", "en")
                 session_id = message.get("session_id", str(uuid4()))
-
+                
                 # Send initial status
                 await manager.send_message(client_id, {
                     "type": "status",
                     "status": "starting",
                     "session_id": session_id
                 })
-
+                
                 try:
                     # Run workflow with streaming callbacks
                     async for event in stream_workflow(workflow, query, language, client_id):
                         await manager.send_message(client_id, event)
-
+                    
                 except Exception as e:
                     logger.error(f"Workflow error: {e}")
                     await manager.send_message(client_id, {
                         "type": "error",
                         "message": str(e)
                     })
-
+            
             elif message.get("type") == "ping":
                 await manager.send_message(client_id, {"type": "pong"})
-
+    
     except WebSocketDisconnect:
         manager.disconnect(client_id)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         manager.disconnect(client_id)
+
 
 async def stream_workflow(workflow: LegalResearchWorkflow, query: str, language: str, client_id: str):
     """
@@ -197,6 +200,7 @@ async def stream_workflow(workflow: LegalResearchWorkflow, query: str, language:
         "trace": trace_logs,
     }
 
+
 @router.websocket("/ws/chat/{session_id}")
 async def websocket_chat(websocket: WebSocket, session_id: str):
     """
@@ -205,20 +209,20 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     """
     client_id = f"chat-{session_id}-{uuid4().hex[:8]}"
     await manager.connect(websocket, client_id)
-
+    
     # Add to session connections
     if session_id not in manager.session_connections:
         manager.session_connections[session_id] = set()
     manager.session_connections[session_id].add(client_id)
-
+    
     try:
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
-
+            
             if message.get("type") == "message":
                 content = message.get("content", "")
-
+                
                 # Echo to all session participants
                 await manager.broadcast(session_id, {
                     "type": "message",
@@ -226,14 +230,14 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     "content": content,
                     "timestamp": asyncio.get_event_loop().time()
                 })
-
+                
                 # If it's a question, trigger AI response
                 if content.strip().endswith("?"):
                     await manager.send_message(client_id, {
                         "type": "typing",
                         "sender": "assistant"
                     })
-
+                    
                     # Generate response (simplified)
                     await asyncio.sleep(1)
                     await manager.send_message(client_id, {
@@ -242,7 +246,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         "content": f"I understand you're asking about '{content}'. Based on my research...",
                         "timestamp": asyncio.get_event_loop().time()
                     })
-
+    
     except WebSocketDisconnect:
         manager.disconnect(client_id)
         if session_id in manager.session_connections:
