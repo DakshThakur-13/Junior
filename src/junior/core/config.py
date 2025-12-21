@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_env: Literal["development", "staging", "production"] = "development"
     app_debug: bool = True
+    # Secret key for session encryption, JWT tokens, CSRF protection
+    # MUST be changed in production! Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
     app_secret_key: str = Field(default="change-me-in-production")
 
     # Server
@@ -45,6 +47,9 @@ class Settings(BaseSettings):
 
     # Groq API
     groq_api_key: str = Field(default="")
+
+    # Perplexity AI (Sonar-Pro)
+    perplexity_api_key: str = Field(default="")
 
     # Hugging Face API
     huggingface_api_key: str = Field(default="")
@@ -60,11 +65,29 @@ class Settings(BaseSettings):
     supabase_key: str = Field(default="")
     supabase_service_key: str = Field(default="")
 
-    # AI Models
+    # AI Models - Multi-Model Architecture
+    # Legacy default (kept for backward compatibility)
     default_llm_model: str = "llama-3.3-70b-versatile"
-    reasoning_model: str = "deepseek-r1-distill-llama-70b"
-    # Free + strong retrieval default (local sentence-transformers)
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    
+    # Specialized Models for Each Agent
+    researcher_model: str = "sonar-pro"  # Perplexity - 127k context + online search
+    researcher_provider: str = "perplexity"  # perplexity | groq | huggingface
+    
+    critic_model: str = "llama-3.3-70b-versatile"  # Groq - Fast reasoning
+    critic_provider: str = "groq"
+    
+    writer_model: str = "llama-3.3-70b-versatile"  # Groq - Best instruction following
+    writer_provider: str = "groq"
+    
+    chat_model: str = "sonar-pro"  # Perplexity - 127k context + online search
+    chat_provider: str = "perplexity"
+    
+    # Reasoning model (for DeepSeek-R1 when available)
+    reasoning_model: str = "llama-3.3-70b-versatile"
+    
+    # Embeddings - Upgraded to multilingual
+    embedding_model: str = "BAAI/bge-m3"  # Multilingual + Hybrid search
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"  # Precision boost
 
     # When false, Junior will NOT attempt to download embedding models from Hugging Face Hub.
     # This avoids very slow retries on networks where huggingface.co is blocked.

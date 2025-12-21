@@ -13,15 +13,16 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 import json
 import re
-from cachetools import TTLCache
+import diskcache as dc
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from junior.core import get_logger, settings
 
 logger = get_logger(__name__)
 
-# In-memory cache for search results (100 queries, 1 hour TTL)
-SEARCH_CACHE = TTLCache(maxsize=100, ttl=3600)
+# Persistent Cache (Stored in .cache folder, 1GB limit)
+# This survives app restarts!
+SEARCH_CACHE = dc.Cache("./.cache/search_results")
 
 # Try to import DDGS, but don't crash if it fails
 try:
@@ -147,7 +148,7 @@ async def search_live(query: str, category: Optional[str] = None, limit: int = 1
     if not HAS_DDGS:
         return []
 
-    # Check Cache
+    # Check Cache (Persistent)
     cache_key = f"{query}::{category}::{limit}"
     if cache_key in SEARCH_CACHE:
         logger.info(f"Serving cached results for: {query}")
@@ -496,10 +497,12 @@ CATALOG: tuple[OfficialSource, ...] = (
 )
 
 def _matches_query(item: OfficialSource, query: str) -> bool:
+    """Smart query matching with acronym support, partial matching, and token matching."""
     q = query.strip().lower()
     if not q:
         return True
 
+    # Build searchable text
     hay = " ".join(
         [
             item.title,
@@ -510,7 +513,34 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
             " ".join(item.tags),
         ]
     ).lower()
-    return q in hay
+    
+    # Direct substring match
+    if q in hay:
+        return True
+    
+    # Token matching: check if ANY query word appears in the text (more flexible)
+    query_tokens = q.split()
+    if any(token in hay for token in query_tokens):
+        return True
+    
+    # Partial word matching: check if query is part of any word
+    hay_words = hay.split()
+    for word in hay_words:
+        if q in word or word in q:
+            return True
+    
+    # Acronym matching: "IPC" should match "Indian Penal Code"
+    # Check if query matches first letters of consecutive words
+    for i in range(len(hay_words)):
+        # Build acronym from consecutive words
+        acronym = ""
+        for j in range(i, min(i + len(q), len(hay_words))):
+            if hay_words[j]:
+                acronym += hay_words[j][0]
+        if acronym == q:
+            return True
+    
+    return False
 
 def get_preview(url: str) -> dict:
     """
@@ -546,10 +576,16 @@ async def search_sources(
     *,
     category: Optional[str] = None,
     authority: Optional[str] = None,
-    limit: int = 25,
+    limit: int = 50,
 ) -> list[OfficialSource]:
     """Search the curated sources catalog AND live web."""
     
+    # Check Cache (Persistent)
+    cache_key = f"combined::{query}::{category}::{authority}::{limit}"
+    if cache_key in SEARCH_CACHE:
+        logger.info(f"Serving cached combined results for: {query}")
+        return SEARCH_CACHE[cache_key]
+
     # 1. Search static catalog
     catalog_results = []
     for item in CATALOG:
@@ -567,11 +603,13 @@ async def search_sources(
         if _matches_query(item, query):
             catalog_results.append(item)
 
-    # 2. If query is present, perform live search
+    # 2. If query is present, perform live search (minimum 2 characters)
+    # Increase live search limit to get more comprehensive results
     live_results = []
-    if query and len(query) > 3:
+    if query and len(query) >= 2:
         try:
-            live_results = await search_live(query, category=category, limit=limit)
+            # Request more results from live search
+            live_results = await search_live(query, category=category, limit=limit * 2)
             
             # Apply post-search filters to live results
             if category and category.lower() != "all":
@@ -593,6 +631,11 @@ async def search_sources(
             unique_results.append(item)
             seen_urls.add(item.url)
 
-    return unique_results[:limit]
+    final_results = unique_results[:limit]
+    
+    # Cache the results (Expire after 24 hours)
+    SEARCH_CACHE.set(cache_key, final_results, expire=86400)
+    
+    return final_results
 
 

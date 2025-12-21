@@ -56,21 +56,46 @@ class BaseAgent(ABC):
     """
 
     role: AgentRole
+    use_model_router: bool = True  # Enable multi-model architecture
 
     def __init__(
         self,
         model_name: Optional[str] = None,
         temperature: float = 0.1,
+        use_model_router: bool = True,
     ):
         self.model_name = model_name or settings.default_llm_model
         self.temperature = temperature
+        self.use_model_router = use_model_router
         self._llm: Optional[BaseChatModel] = None
         self.logger = get_logger(f"agent.{self.role.value}")
 
     @property
     def llm(self) -> BaseChatModel:
-        """Get or create LLM instance"""
+        """Get or create LLM instance using model router or legacy method"""
         if self._llm is None:
+            # NEW: Use Model Router for specialized models
+            if self.use_model_router:
+                try:
+                    from junior.services.model_router import get_model_router, ModelPurpose
+                    
+                    # Map agent role to model purpose
+                    purpose_map = {
+                        AgentRole.RESEARCHER: ModelPurpose.RESEARCHER,
+                        AgentRole.CRITIC: ModelPurpose.CRITIC,
+                        AgentRole.WRITER: ModelPurpose.WRITER,
+                    }
+                    
+                    purpose = purpose_map.get(self.role, ModelPurpose.GENERAL)
+                    router = get_model_router()
+                    self._llm = router.get_model(purpose=purpose, temperature=self.temperature)
+                    self.logger.info(f"Using specialized model via router: {purpose.value}")
+                    return self._llm
+                except Exception as e:
+                    self.logger.warning(f"Model router failed: {e}. Falling back to legacy LLM.")
+                    # Fall through to legacy method
+            
+            # LEGACY: Original LLM initialization (kept for backward compatibility)
             # 1. Try Groq (Preferred - Fast & Free Tier)
             if settings.groq_api_key:
                 api_key = SecretStr(settings.groq_api_key)
@@ -108,7 +133,7 @@ class BaseAgent(ABC):
 
             # 3. No LLM configured
             raise LLMNotConfiguredError(
-                "LLM is not configured. Set GROQ_API_KEY or HUGGINGFACE_API_KEY in your .env."
+                "LLM is not configured. Set GROQ_API_KEY, GOOGLE_API_KEY, or HUGGINGFACE_API_KEY in your .env."
             )
 
         return self._llm

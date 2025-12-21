@@ -201,7 +201,7 @@ class OfficialSourcesSearchRequest(BaseModel):
     query: str = Field(default="", max_length=500)
     category: Optional[str] = Field(default=None, description="Filter by type: Official, Study, Act, etc")
     authority: Optional[str] = Field(default=None, description="Filter by authority: official or study")
-    limit: int = Field(default=25, ge=1, le=50)
+    limit: int = Field(default=50, ge=1, le=200)
 
 class OfficialSourcesSearchResponse(BaseModel):
     query: str

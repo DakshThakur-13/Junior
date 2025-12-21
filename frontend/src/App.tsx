@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ResearchPanel, ResearchItem } from './components/ResearchPanel';
 import {
   AlertTriangle,
   BookOpen,
@@ -51,19 +52,7 @@ type CaseData = {
   status: string;
 };
 
-type ResearchItem = {
-  id: string;
-  title: string;
-  type: string;
-  summary?: string;
-  source?: string;
-  url?: string;
-  publisher?: string;
-  authority?: 'official' | 'study' | string;
-  tags?: string[];
-  size?: string;
-  date?: string;
-};
+// ResearchItem type is now imported from ./components/ResearchPanel
 
 type NodeStatus = 'Verified' | 'Pending' | 'Contested';
 type NodeType = 'Evidence' | 'Precedent' | 'Statement' | 'Strategy';
@@ -1045,319 +1034,7 @@ function CaseSelection(props: { onSelectCase: (c: CaseData) => void; onNewCase: 
   );
 }
 
-function ResearchPanel(props: {
-  isOpen: boolean;
-  onClose: () => void;
-  onDragStart: (e: React.MouseEvent<HTMLElement>, item: ResearchItem) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<'all' | 'Official' | 'Study' | 'Law' | 'Precedent' | 'Act' | 'Constitution'>('all');
-  const [items, setItems] = useState<ResearchItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // New State for Preview and Citator
-  const [previewItem, setPreviewItem] = useState<ResearchItem | null>(null);
-  const [previewContent, setPreviewContent] = useState<string>('');
-  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
-  const [citationChecks, setCitationChecks] = useState<Record<string, { status: string; emoji: string; message: string }>>({});
-  const [checkingCitation, setCheckingCitation] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!props.isOpen) return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-
-    const run = async () => {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const res = await fetch('/api/v1/research/sources/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query,
-            category: category === 'all' ? null : category,
-            authority: category === 'Official' ? 'official' : category === 'Study' ? 'study' : null,
-            limit: 25,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const detail = await res.text();
-          throw new Error(detail || `API error: ${res.status}`);
-        }
-
-        const data = (await res.json()) as { results?: ResearchItem[] };
-        if (!cancelled) {
-          setItems(Array.isArray(data.results) ? data.results : []);
-        }
-      } catch (e) {
-        if (!cancelled && !(e instanceof DOMException && e.name === 'AbortError')) {
-          setLoadError('Sources unavailable (backend not running).');
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-
-    const t = window.setTimeout(() => void run(), 200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(t);
-      controller.abort();
-    };
-  }, [props.isOpen, query, category]);
-
-  const handlePreview = async (item: ResearchItem) => {
-    if (!item.url) return;
-    setPreviewItem(item);
-    setPreviewContent('');
-    setIsPreviewLoading(true);
-    try {
-      const res = await fetch('/api/v1/research/sources/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: item.url }),
-      });
-      if (!res.ok) throw new Error('Failed to load preview');
-      const data = await res.json();
-      setPreviewContent(data.content || 'No content available.');
-    } catch (e) {
-      setPreviewContent('Failed to load preview. Please open the source directly.');
-    } finally {
-      setIsPreviewLoading(false);
-    }
-  };
-
-  const handleCheckAuthority = async (e: React.MouseEvent, item: ResearchItem) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const query = item.title; 
-    setCheckingCitation(item.id);
-    try {
-       const safe = encodeURIComponent(query);
-       const res = await fetch(`/api/v1/research/shepardize/${safe}`);
-       const data = await res.json();
-       setCitationChecks(prev => ({
-          ...prev,
-          [item.id]: {
-              status: data.status || 'unknown',
-              emoji: data.status_emoji || '⚪',
-              message: data.message || ''
-          }
-       }));
-    } catch (e) {
-       // ignore
-    } finally {
-       setCheckingCitation(null);
-    }
-  };
-
-  const filtered = items.filter(
-    (item) =>
-      (category === 'all' || item.type === category || (category === 'Official' && item.authority === 'official') || (category === 'Study' && item.authority === 'study')) &&
-      (item.title.toLowerCase().includes(query.toLowerCase()) || (item.summary ?? '').toLowerCase().includes(query.toLowerCase()) || (item.source ?? '').toLowerCase().includes(query.toLowerCase()))
-  );
-
-  if (!props.isOpen) return null;
-
-  return (
-    <div className="fixed left-4 right-4 top-20 bottom-4 sm:left-28 sm:right-auto sm:top-8 sm:bottom-8 sm:w-80 glass-panel border border-white/10 rounded-2xl shadow-2xl flex flex-col z-40 overflow-hidden animate-fade-in-left">
-      <div className="p-5 border-b border-white/10 flex justify-between items-center bg-legal-surface/50">
-        <div className="flex items-center gap-2 text-legal-gold">
-          <Search size={18} />
-          <h3 className="font-serif font-bold text-base tracking-wide text-legal-text">Legal Research</h3>
-        </div>
-        <button onClick={props.onClose} className="text-slate-400 hover:text-white transition-colors" title="Close" aria-label="Close">
-          <X size={18} />
-        </button>
-      </div>
-
-      <div className="p-5 space-y-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
-          <input
-            type="text"
-            placeholder="Search acts, judgments..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-black/20 border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-xs text-slate-200 focus:border-legal-gold/50 outline-none glass-input transition-all"
-          />
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {(['all', 'Official', 'Study', 'Law', 'Precedent', 'Act', 'Constitution'] as const).map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={`px-3 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-colors ${
-                category === cat
-                  ? 'bg-legal-gold/20 text-legal-gold border border-legal-gold/30'
-                  : 'bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10'
-              }`}
-            >
-              {cat.charAt(0).toUpperCase() + cat.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-5 space-y-3">
-        <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium mb-2">
-          <Sparkles size={10} className="text-legal-gold" />
-          <span>AI RECOMMENDATIONS</span>
-        </div>
-
-        {isLoading && (
-          <div className="text-xs text-slate-500">Loading sources…</div>
-        )}
-
-        {loadError && (
-          <div className="text-xs text-rose-300 bg-rose-950/30 border border-rose-900/40 rounded-lg p-2">
-            {loadError}
-          </div>
-        )}
-
-        {filtered.map((item) => (
-          <button
-            type="button"
-            key={item.id}
-            onMouseDown={(e) => props.onDragStart(e, item)}
-            className="w-full text-left bg-legal-surface/40 border border-white/5 rounded-xl p-4 cursor-grab active:cursor-grabbing hover:border-legal-gold/30 hover:bg-legal-surface/60 transition-all group select-none"
-            aria-label={`Drag ${item.title}`}
-          >
-            <div className="flex justify-between items-start mb-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                    item.type === 'Precedent'
-                      ? 'text-blue-400 border-blue-400/20 bg-blue-400/10'
-                      : 'text-emerald-400 border-emerald-400/20 bg-emerald-400/10'
-                  }`}
-                >
-                  {item.type}
-                </span>
-                {item.authority && (
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                      item.authority === 'official'
-                        ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
-                        : 'text-legal-gold border-legal-gold/30 bg-legal-gold/10'
-                    }`}
-                    title={item.authority === 'official' ? 'Official source' : 'Study / manual'}
-                    aria-label={item.authority === 'official' ? 'Official source' : 'Study / manual'}
-                  >
-                    {item.authority === 'official' ? 'OFFICIAL' : 'STUDY'}
-                  </span>
-                )}
-              </div>
-              <GripVertical size={14} className="text-slate-600 group-hover:text-slate-400" />
-            </div>
-            <h4 className="text-sm font-bold text-legal-text mb-1 font-serif">{item.title}</h4>
-            <p className="text-[11px] text-slate-400 line-clamp-2 mb-3 leading-relaxed">{item.summary}</p>
-            <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 font-mono">
-              <div className="flex items-center gap-1 min-w-0">
-                <ShieldAlert size={10} />
-                <span className="truncate">{item.source}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* Smart Citator / Traffic Light */}
-                {citationChecks[item.id] ? (
-                    <div className="flex items-center gap-1" title={citationChecks[item.id].message}>
-                        <span className="text-sm">{citationChecks[item.id].emoji}</span>
-                    </div>
-                ) : (
-                    <button
-                        type="button"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => handleCheckAuthority(e, item)}
-                        className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-400 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
-                        disabled={checkingCitation === item.id}
-                    >
-                        {checkingCitation === item.id ? '...' : 'CHECK'}
-                    </button>
-                )}
-
-                {/* Preview Button */}
-                {item.url && (
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handlePreview(item);
-                    }}
-                    className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
-                  >
-                    PREVIEW
-                  </button>
-                )}
-
-                {item.url && (
-                  <button
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      window.open(item.url, '_blank', 'noopener,noreferrer');
-                    }}
-                    className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-colors"
-                    aria-label={`Open ${item.title}`}
-                    title="Open source"
-                  >
-                    OPEN
-                  </button>
-                )}
-              </div>
-            </div>
-          </button>
-        ))}
-
-        {!isLoading && filtered.length === 0 && (
-          <div className="text-xs text-slate-500">No sources found.</div>
-        )}
-      </div>
-
-      {/* Preview Modal */}
-      {previewItem && (
-        <div className="absolute inset-0 z-50 bg-legal-bg flex flex-col animate-fade-in">
-            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-legal-surface">
-                <h3 className="font-serif font-bold text-sm text-legal-text truncate pr-4">{previewItem.title}</h3>
-                <button onClick={() => setPreviewItem(null)} className="text-slate-400 hover:text-white">
-                    <X size={18} />
-                </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-serif">
-                {isPreviewLoading ? (
-                    <div className="flex items-center justify-center h-full text-slate-500">
-                        <Sparkles className="animate-spin mr-2" size={16} />
-                        Loading preview...
-                    </div>
-                ) : (
-                    previewContent
-                )}
-            </div>
-            <div className="p-3 border-t border-white/10 bg-legal-surface/50 flex justify-end">
-                <button 
-                    onClick={() => window.open(previewItem.url, '_blank')}
-                    className="text-xs text-legal-gold hover:underline"
-                >
-                    Open Full Source External
-                </button>
-            </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function DraftingStudio() {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3069,34 +2746,83 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const handleSendMessage = async (message: string) => {
     setMessages((prev) => [...prev, { role: 'user', content: message }]);
     setIsLoading(true);
+    
+    // Add a placeholder for assistant message that we'll stream into
+    const assistantMsgIndex = messages.length + 1;
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+    
     try {
       const payload: Record<string, unknown> = { message, language: 'en' };
       if (chatSessionId) payload.session_id = chatSessionId;
 
-      const response = await fetch('/api/v1/chat/', {
+      // Use streaming endpoint for ChatGPT-like experience
+      const response = await fetch('/api/v1/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const responseText = await response.text();
       if (!response.ok) {
-        throw new Error(responseText || `Request failed (${response.status})`);
+        throw new Error(`Request failed (${response.status})`);
       }
 
-      const data = JSON.parse(responseText) as { session_id?: string; message?: { content?: string } };
-      if (data.session_id) setChatSessionId(data.session_id);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      
+      if (!reader) {
+        throw new Error('No response body');
+      }
 
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.message?.content || "I've processed your request." }]);
+      let fullResponse = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'session' && data.session_id) {
+                setChatSessionId(data.session_id);
+              } else if (data.type === 'chunk' && data.content) {
+                fullResponse += data.content;
+                // Update the assistant message with streaming content
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  newMessages[assistantMsgIndex] = {
+                    role: 'assistant',
+                    content: fullResponse
+                  };
+                  return newMessages;
+                });
+              } else if (data.type === 'error') {
+                throw new Error(data.error || 'Unknown error');
+              }
+            } catch (e) {
+              // Ignore JSON parse errors for incomplete chunks
+              if (e instanceof Error && !e.message.includes('Unexpected')) {
+                throw e;
+              }
+            }
+          }
+        }
+      }
+      
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setMessages((prev) => [
-        ...prev,
-        {
+      setMessages((prev) => {
+        const newMessages = [...prev];
+        newMessages[assistantMsgIndex] = {
           role: 'assistant',
-          content: `Chat error: ${errorMessage}`,
-        },
-      ]);
+          content: `Sorry, I encountered an error: ${errorMessage}\n\nPlease try again.`
+        };
+        return newMessages;
+      });
     }
     setIsLoading(false);
   };

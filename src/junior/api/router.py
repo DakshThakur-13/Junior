@@ -4,7 +4,7 @@ API Router - Main router combining all endpoint groups
 
 from fastapi import APIRouter
 
-from .endpoints import research, documents, chat, translate, format, health, judges, cases, websocket, audio
+from .endpoints import research, documents, chat, chat_stream, translate, format, health, judges, cases, websocket, audio
 from .endpoints.wall import router as wall_router
 
 # Create main API router
@@ -38,6 +38,13 @@ api_router.include_router(
     chat.router,
     prefix="/chat",
     tags=["Chat"],
+)
+
+# Note: chat_stream uses same /chat prefix but different routes (/stream)
+api_router.include_router(
+    chat_stream.router,
+    prefix="/chat",
+    tags=["Chat Streaming"],
 )
 
 api_router.include_router(
