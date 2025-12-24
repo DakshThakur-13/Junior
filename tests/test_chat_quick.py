@@ -1,5 +1,9 @@
 """Quick test to check if chat is working"""
 import asyncio
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
+
 from junior.services.conversational_chat import ConversationalChat
 
 async def test():

@@ -3,7 +3,11 @@ Quick test for the conversational chat system
 """
 
 import asyncio
-from src.junior.services.conversational_chat import conversational_chat
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
+
+from junior.services.conversational_chat import conversational_chat
 
 async def test_chat():
     print("Testing conversational chat...")

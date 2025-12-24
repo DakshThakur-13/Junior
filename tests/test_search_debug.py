@@ -1,7 +1,8 @@
 """Test search functionality to debug issues"""
 import asyncio
 import sys
-sys.path.insert(0, 'src')
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
 from junior.services.official_sources import search_sources
 

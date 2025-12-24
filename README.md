@@ -9,81 +9,133 @@ Junior bridges the **Trust Deficit** between AI and Indian legal professionals b
 ## ✨ Key Features
 
 ### 🔍 Research Engine (Zero-Hallucination)
-- **Agentic RAG**: Team of AI agents (Researcher, Critic, Writer) that iterate until the answer is legally sound
-- **Pinpoint Citation**: Every legal claim hyperlinked to the specific paragraph of the source PDF
-- **Traffic Light Shepardizing**: Visual validity indicator (🔴 Overruled, 🟡 Distinguished, 🟢 Good Law)
+- **Agentic RAG**: Team of AI agents (Researcher, Critic, Writer) that iterate until the answer is legally sound.
+- **Pinpoint Citation**: Every legal claim hyperlinked to the specific paragraph of the source PDF.
+- **Traffic Light Shepardizing**: Visual validity indicator (🔴 Overruled, 🟡 Distinguished, 🟢 Good Law).
 
 ### 🧠 Strategy Engine (Predictive)
-- **Judge Analytics**: Behavioral patterns analysis from past rulings
-- **Devil's Advocate Simulator**: War Room feature to expose weak arguments before court
+- **Judge Analytics**: Behavioral patterns analysis from past rulings.
+- **Devil's Advocate Simulator**: War Room feature to expose weak arguments before court.
 
 ### ⚡ Utility Engine (Automation)
-- **Multilingual "Hinglish" Bridge**: Query in vernacular, search English repositories
-- **Draft-to-Court Auto-Formatter**: Convert raw text to court-compliant PDFs
+- **Multilingual "Hinglish" Bridge**: Query in vernacular, search English repositories.
+- **Draft-to-Court Auto-Formatter**: Convert raw text to court-compliant PDFs.
+
+### 💻 Modern Frontend
+- **Modular Architecture**: Built with React, TypeScript, and Vite for high performance.
+- **Interactive UI**:
+  - **Detective Wall**: Visual graph canvas for connecting evidence and arguments.
+  - **Radial Menu**: Intuitive navigation system.
+  - **Streaming Chat**: Real-time AI interaction with conflict detection.
 
 ## 🏗️ Architecture
 
+### Backend (Python + FastAPI)
+- **LangGraph**: Orchestrates the cyclic workflow of agents (Search → Research → Critique → Write).
+- **Supabase**: Vector database (pgvector) for semantic search and storage.
+- **GLiNER**: PII redaction for privacy compliance.
+- **IndicTrans2**: Local translation models for Hinglish support.
+
+### Frontend (React + TypeScript)
+- **Vite**: Fast build tool and dev server.
+- **Tailwind CSS**: Utility-first styling.
+- **Lucide React**: Beautiful, consistent icons.
+- **Component Structure**:
+  - `components/`: Reusable UI elements (ChatPanel, RadialMenu, etc.).
+  - `views/`: Page-level components (LandingPage, CaseSelection).
+  - `types/`: Centralized TypeScript definitions.
+
+## 📂 Project Structure
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Junior Architecture                       │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │  Researcher │→ │   Critic    │→ │   Writer    │         │
-│  │    Agent    │  │    Agent    │  │    Agent    │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-│         ↑              ↑              ↓                     │
-│         └──────────────┴──────────────┘                     │
-│                   LangGraph Orchestration                   │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Supabase  │  │    GLiNER   │  │  IndicTrans │         │
-│  │  (pgvector) │  │ (PII Guard) │  │ (Translate) │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
+ZeroDay/
+├── src/                    # Backend Source Code
+│   ├── junior/
+│   │   ├── agents/         # AI Agents (Researcher, Critic, etc.)
+│   │   ├── api/            # FastAPI Endpoints
+│   │   ├── core/           # Config & Types
+│   │   ├── graph/          # LangGraph Workflows
+│   │   └── services/       # Business Logic (PDF, Search, etc.)
+│
+├── frontend/               # Frontend Source Code
+│   ├── src/
+│   │   ├── components/     # Modular UI Components
+│   │   │   ├── DetectiveWall/
+│   │   │   ├── ChatPanel.tsx
+│   │   │   ├── RadialMenu.tsx
+│   │   │   └── ...
+│   │   ├── views/          # Application Views
+│   │   ├── types/          # TypeScript Definitions
+│   │   └── App.tsx         # Main Application Component
+│
+├── docs/                   # Documentation
+├── scripts/                # Utility Scripts
+└── uploads/                # Local Document Storage
 ```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Groq API Key
-- Supabase Account
+- **Python 3.11+**
+- **Node.js 18+** & **npm**
+- **Groq API Key**
+- **Supabase Account**
 
-### Installation
+### 1. Backend Setup
 
-1. Clone the repository:
+1. Create and activate virtual environment:
+   ```bash
+   python -m venv .venv
+   # Windows
+   .\.venv\Scripts\activate
+   # Linux/Mac
+   source .venv/bin/activate
+   ```
+
+2. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Configure environment:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API keys (GROQ_API_KEY, SUPABASE_URL, etc.)
+   ```
+
+4. Run the backend server:
+   ```bash
+   # Windows (PowerShell)
+   $env:PYTHONPATH = "$PWD\src"; python -m uvicorn junior.main:app --reload
+
+   # Linux/Mac
+   PYTHONPATH=./src python -m uvicorn junior.main:app --reload
+   ```
+   Backend will run at `http://localhost:8000`.
+
+### 2. Frontend Setup
+
+1. Navigate to frontend directory:
+   ```bash
+   cd frontend
+   ```
+
+2. Install Node dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+   Frontend will run at `http://localhost:5173`.
+
+### 3. One-Click Start (Windows)
+
+You can use the provided `start.bat` script to launch both backend and frontend simultaneously:
 ```bash
-git clone https://github.com/your-org/junior.git
-cd junior
-```
-
-2. Create and activate virtual environment:
-```bash
-python -m venv .venv
-# Windows
-.\.venv\Scripts\activate
-# Linux/Mac
-source .venv/bin/activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configure environment:
-```bash
-cp .env.example .env
-# Edit .env with your API keys
-```
-
-5. Run the application:
-```bash
-# Windows (PowerShell)
-$env:PYTHONPATH = "$PWD\src"; python -m uvicorn junior.main:app --reload
-
-# Linux/Mac
-PYTHONPATH=./src python -m uvicorn junior.main:app --reload
+.\start.bat
 ```
 
 ## 📚 RAG “Training” on Public Manuals (Free)
@@ -98,41 +150,15 @@ Junior improves legal quality using **Agentic RAG** + **your ingested evidence**
 Relevant environment settings (see `.env.example`):
 - `EMBEDDING_MODEL` (free/local; default `BAAI/bge-small-en-v1.5`)
 - `MANUALS_DOWNLOAD_DIR`, `MANUALS_MAX_BYTES`
-- `MANUALS_ALLOW_URL_INGEST` + `MANUALS_ALLOWLIST_DOMAINS` (disabled by default)
-
-## 📁 Project Structure
-
-```
-junior/
-├── src/
-│   └── junior/
-│       ├── agents/          # AI Agents (Researcher, Critic, Writer)
-│       ├── api/             # FastAPI endpoints
-│       ├── core/            # Core configuration and utilities
-│       ├── db/              # Database models and repositories
-│       ├── services/        # Business logic services
-│       ├── graph/           # LangGraph workflow definitions
-│       └── utils/           # Helper utilities
-├── tests/                   # Test suite
-├── static/                  # Static assets
-├── templates/               # Jinja2 templates
-└── docs/                    # Documentation
-```
-
-## 🔐 Privacy & Compliance
-
-- **DPDP Act Compliant**: Local PII redaction before cloud processing
-- **Client Privilege Watermark**: Auto-watermarking of AI drafts
-- **Zero-Hallucination Protocol**: Strict citation requirements
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) for details.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
----
+## 📄 License
 
-**Built with ❤️ for the Indian Legal Community**
+This project is licensed under the MIT License - see the LICENSE file for details.

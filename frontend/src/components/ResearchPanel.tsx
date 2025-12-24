@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import './ResearchPanel.css';
 import {
   AlertTriangle,
   BookOpen,
@@ -23,6 +24,8 @@ export type ResearchItem = {
   size?: string;
   date?: string;
 };
+
+type Category = 'all' | 'case-law' | 'acts' | 'official' | 'study';
 
 export function ResearchPanel(props: {
   isOpen: boolean;
@@ -194,6 +197,7 @@ export function ResearchPanel(props: {
         <button
           onClick={props.onClose}
           className="text-slate-400 hover:text-legal-text transition-colors"
+          title="Close Research Panel"
         >
           <X size={18} />
         </button>
@@ -217,6 +221,7 @@ export function ResearchPanel(props: {
             <button
               onClick={() => setQuery('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              title="Clear search"
             >
               <X size={14} />
             </button>
@@ -284,7 +289,7 @@ export function ResearchPanel(props: {
             <div className="flex flex-col items-center gap-4">
               <div className="relative">
                 <div className="w-12 h-12 border-4 border-legal-gold/20 border-t-legal-gold rounded-full animate-spin" />
-                <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-b-legal-gold/40 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1s' }} />
+                <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-b-legal-gold/40 rounded-full animate-spin reverse-spin" />
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-legal-text mb-1">Searching Legal Sources</p>
