@@ -4,7 +4,7 @@ API Router - Main router combining all endpoint groups
 
 from fastapi import APIRouter
 
-from .endpoints import research, documents, chat, chat_stream, translate, format, health, judges, cases, websocket, audio, admin
+from .endpoints import research, documents, chat, chat_stream, translate, format, health, judges, cases, websocket, audio, admin, consent
 from .endpoints.wall import router as wall_router
 
 # Create main API router
@@ -20,6 +20,11 @@ api_router.include_router(
     admin.router,
     prefix="/admin",
     tags=["Admin"],
+)
+
+api_router.include_router(
+    consent.router,
+    tags=["Consent & Privacy"],
 )
 
 api_router.include_router(

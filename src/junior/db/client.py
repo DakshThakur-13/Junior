@@ -3,9 +3,13 @@ Supabase client configuration
 """
 
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
 
-from supabase import create_client, Client
+try:
+    from supabase import Client, create_client  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    Client = Any  # type: ignore
+    create_client = None  # type: ignore
 
 from junior.core import settings, get_logger
 
@@ -23,6 +27,10 @@ class SupabaseClient:
     def client(self) -> Client:
         """Get or create Supabase client"""
         if self._client is None:
+            if create_client is None:
+                raise RuntimeError(
+                    "Supabase is not installed. Install with `pip install supabase` or remove Supabase features."
+                )
             if not settings.supabase_url or not settings.supabase_key:
                 logger.warning("Supabase credentials not configured")
                 raise ValueError("Supabase URL and Key must be configured")
@@ -40,6 +48,10 @@ class SupabaseClient:
 
     def get_service_client(self) -> Client:
         """Get Supabase client with service role key (bypasses RLS)"""
+        if create_client is None:
+            raise RuntimeError(
+                "Supabase is not installed. Install with `pip install supabase` or remove Supabase features."
+            )
         if not settings.supabase_url or not settings.supabase_service_key:
             raise ValueError("Supabase service credentials not configured")
 

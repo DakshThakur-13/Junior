@@ -1,0 +1,42 @@
+[run]
+# Coverage configuration for Junior AI Legal Assistant
+
+source = src/junior
+omit = 
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */.venv/*
+    */site-packages/*
+    */migrations/*
+    */__init__.py
+
+branch = True
+parallel = True
+
+[report]
+# Reporting options
+precision = 2
+show_missing = True
+skip_covered = False
+skip_empty = True
+
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    def __str__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
+    pass
+
+[html]
+directory = htmlcov
+title = Junior Test Coverage Report
+
+[xml]
+output = coverage.xml

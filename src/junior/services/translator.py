@@ -290,99 +290,45 @@ class TranslationService:
         source_lang: Language,
         target_lang: Language,
     ) -> str:
-        """Translate using AI4Bharat IndicTrans2 (HF) with Groq fallback."""
-        # 1) Prefer IndicTrans2 for Indian language translation
-        if settings.huggingface_api_key:
-            try:
-                return await self._translate_with_indictrans(text, source_lang, target_lang)
-            except Exception as e:
-                logger.warning(f"IndicTrans2 translation failed: {e}. Falling back to LLM.")
+        """Translate using Groq LLM with legal expertise."""
+        if not settings.groq_api_key:
+            logger.warning("No translation backend available (Groq API key not configured)")
+            return text
 
-        # 2) Fallback to Groq LLM if configured
-        if settings.groq_api_key:
-            from langchain_groq import ChatGroq
-            from langchain_core.messages import HumanMessage, SystemMessage
-            from pydantic import SecretStr
+        from langchain_groq import ChatGroq
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from pydantic import SecretStr
 
-            source_name = self.LANGUAGE_NAMES.get(source_lang.value, source_lang.value)
-            target_name = self.LANGUAGE_NAMES.get(target_lang.value, target_lang.value)
+        source_name = self.LANGUAGE_NAMES.get(source_lang.value, source_lang.value)
+        target_name = self.LANGUAGE_NAMES.get(target_lang.value, target_lang.value)
 
-            llm = ChatGroq(
-                model=settings.default_llm_model,
-                api_key=SecretStr(settings.groq_api_key),
-                temperature=0.1,
-            )
-
-            messages = [
-                SystemMessage(
-                    content=(
-                        "You are a legal translator specializing in Indian law.\n"
-                        f"Translate the following text from {source_name} to {target_name}.\n"
-                        "Preserve all legal terminology, case names, and statutory references in their original form.\n"
-                        "Maintain the formal legal register appropriate for court documents."
-                    )
-                ),
-                HumanMessage(content=text),
-            ]
-
-            response = await llm.ainvoke(messages)
-            content: Any = response.content
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                return "".join(part if isinstance(part, str) else str(part) for part in content)
-            return str(content)
-
-        # 3) No translation backend available
-        return text
-
-    async def _translate_with_indictrans(
-        self,
-        text: str,
-        source_lang: Language,
-        target_lang: Language,
-    ) -> str:
-        """Translate using AI4Bharat IndicTrans2 via Hugging Face."""
-        from langchain_huggingface import HuggingFaceEndpoint
-        
-        # Determine model direction
-        if source_lang == Language.ENGLISH:
-            # English -> Indic
-            repo_id = "ai4bharat/indictrans2-en-indic-1B"
-        else:
-            # Indic -> English (or Indic -> Indic, but we mostly do Indic <-> En)
-            repo_id = "ai4bharat/indictrans2-indic-en-1B"
-            
-        # Get FLORES-200 codes
-        src_code = self.INDICTRANS_CODES.get(source_lang.value, "eng_Latn")
-        tgt_code = self.INDICTRANS_CODES.get(target_lang.value, "eng_Latn")
-        
-        def _make_endpoint(**kwargs):
-            try:
-                return HuggingFaceEndpoint(**kwargs)
-            except TypeError:
-                if "repo_id" in kwargs and "model" not in kwargs:
-                    alt_kwargs = dict(kwargs)
-                    alt_kwargs["model"] = alt_kwargs.pop("repo_id")
-                    return HuggingFaceEndpoint(**alt_kwargs)
-                raise
-
-        llm = _make_endpoint(
-            repo_id=repo_id,
-            task="text2text-generation",
-            huggingfacehub_api_token=settings.huggingface_api_key,
-            model_kwargs={
-                "src_lang": src_code,
-                "tgt_lang": tgt_code,
-            },
+        llm = ChatGroq(
+            model=settings.default_llm_model,
+            api_key=SecretStr(settings.groq_api_key),
+            temperature=0.1,
         )
 
-        result = await llm.ainvoke(text)
-        if isinstance(result, str):
-            return result
-        if hasattr(result, "content"):
-            return str(getattr(result, "content"))
-        return str(result)
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are a legal translator specializing in Indian law.\n"
+                    f"Translate the following text from {source_name} to {target_name}.\n"
+                    "Preserve all legal terminology, case names, and statutory references in their original form.\n"
+                    "Maintain the formal legal register appropriate for court documents."
+                )
+            ),
+            HumanMessage(content=text),
+        ]
+
+        response = await llm.ainvoke(messages)
+        content: Any = response.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(part if isinstance(part, str) else str(part) for part in content)
+        return str(content)
+
+
     
     async def _translate_with_preservation(
         self,
@@ -391,55 +337,22 @@ class TranslationService:
         preserve_terms: list[str],
     ) -> str:
         """
-        Translate while explicitly preserving specific terms
+        Translate using Groq LLM while explicitly preserving specific legal terms.
         """
-        import re
+        if not settings.groq_api_key:
+            logger.warning("No translation backend available (Groq API key not configured)")
+            return text
 
-        # 1) Prefer IndicTrans2 if available; preserve terms via placeholder tokens.
-        if settings.huggingface_api_key:
-            try:
-                token_map: dict[str, str] = {}
-                protected_text = text
-
-                for i, term in enumerate(preserve_terms or []):
-                    token = f"__JUNIOR_TERM_{i}__"
-                    token_map[token] = term
-                    # Replace case-insensitively, but re-insert the canonical English term.
-                    protected_text = re.sub(
-                        re.escape(term),
-                        token,
-                        protected_text,
-                        flags=re.IGNORECASE,
-                    )
-
-                translated = await self._translate_with_indictrans(
-                    protected_text,
-                    source_lang=Language.ENGLISH,
-                    target_lang=target_lang,
-                )
-
-                # Restore preserved terms exactly
-                for token, term in token_map.items():
-                    translated = translated.replace(token, term)
-
-                return translated
-            except Exception as e:
-                logger.warning(f"IndicTrans2 preserved-term translation failed: {e}. Falling back to LLM.")
-
-        # 2) Fallback to Groq LLM with explicit preserve list
         from langchain_groq import ChatGroq
         from langchain_core.messages import SystemMessage, HumanMessage
         from pydantic import SecretStr
 
         target_name = self.LANGUAGE_NAMES.get(target_lang.value, target_lang.value)
-
         preserve_list = "\n".join(f"- {term}" for term in (preserve_terms or []))
-
-        api_key = SecretStr(settings.groq_api_key) if settings.groq_api_key else None
 
         llm = ChatGroq(
             model=settings.default_llm_model,
-            api_key=api_key,
+            api_key=SecretStr(settings.groq_api_key),
             temperature=0.1,
         )
 

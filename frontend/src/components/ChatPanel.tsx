@@ -139,7 +139,7 @@ export function ChatPanel(props: {
   if (!props.isOpen) return null;
 
   return (
-    <div className="fixed right-0 top-0 h-full w-full sm:w-[400px] glass-panel border-l border-white/10 flex flex-col z-50 shadow-2xl">
+    <div className="fixed right-0 top-0 h-full w-full sm:w-[400px] glass-panel border-l border-white/10 flex flex-col shadow-2xl" style={{ zIndex: 9999 }}>
       <div className="p-4 border-b border-white/10 flex flex-col gap-3 bg-legal-surface/50">
         {/* Header row with title and close button */}
         <div className="flex justify-between items-center">

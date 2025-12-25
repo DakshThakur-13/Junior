@@ -13,16 +13,34 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 import json
 import re
-import diskcache as dc
-from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage, HumanMessage
 from junior.core import get_logger, settings
 
 logger = get_logger(__name__)
 
-# Persistent Cache (Stored in .cache folder, 1GB limit)
-# This survives app restarts!
-SEARCH_CACHE = dc.Cache("./.cache/search_results")
+class _SimpleCache(dict):
+    def set(self, key, value, expire=None):  # noqa: ARG002
+        self[key] = value
+
+
+# Persistent Cache (Stored in .cache folder, 1GB limit) when available.
+# Falls back to in-memory cache if diskcache isn't installed.
+try:
+    import diskcache as dc  # type: ignore
+
+    SEARCH_CACHE = dc.Cache("./.cache/search_results")
+except Exception:
+    SEARCH_CACHE = _SimpleCache()
+    logger.warning("diskcache not installed. Using in-memory search cache.")
+
+
+# Optional: Groq-powered query expansion
+try:
+    from langchain_groq import ChatGroq  # type: ignore
+    from langchain_core.messages import SystemMessage, HumanMessage  # type: ignore
+except Exception:
+    ChatGroq = None
+    SystemMessage = None
+    HumanMessage = None
 
 # Try to import DDGS, but don't crash if it fails
 try:
@@ -86,7 +104,7 @@ async def expand_query(user_query: str, category: Optional[str] = None) -> list[
     if any(x in user_query.lower() for x in [" v. ", " vs ", "air ", "scc ", "scr "]):
         return [user_query]
 
-    if not settings.groq_api_key:
+    if not settings.groq_api_key or ChatGroq is None or SystemMessage is None or HumanMessage is None:
         return [f"{user_query} India law"]
 
     try:
@@ -782,26 +800,109 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
 def get_preview(url: str) -> dict:
     """
     Fetches and extracts main content from a URL for instant preview.
-    Uses trafilatura for robust extraction.
+    Uses trafilatura for robust extraction when available, otherwise falls back
+    to a lightweight httpx + BeautifulSoup extraction.
     """
     try:
-        import trafilatura
-        
-        downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
-            return {"error": "Could not fetch URL"}
-            
-        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-        if not text:
+        trafilatura = None
+        try:
+            import trafilatura as _trafilatura  # type: ignore
+
+            trafilatura = _trafilatura
+        except Exception:
+            trafilatura = None
+
+        if trafilatura is not None:
+            downloaded = trafilatura.fetch_url(url)
+            if not downloaded:
+                return {"error": "Could not fetch URL"}
+
+            text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+            if not text:
+                return {"error": "Could not extract text"}
+
+            summary = text[:1000] + "..." if len(text) > 1000 else text
+            try:
+                meta = trafilatura.extract(downloaded, only_with_metadata=True)
+                title = meta.get("title", "Preview") if isinstance(meta, dict) else "Preview"
+            except Exception:
+                title = "Preview"
+
+            return {
+                "title": title,
+                "content": summary,
+                "full_text_length": len(text),
+            }
+
+        # Fallback: httpx + BeautifulSoup (and PDF via pypdf)
+        from io import BytesIO
+        from urllib.parse import urlparse
+
+        import httpx
+        from bs4 import BeautifulSoup
+        from pypdf import PdfReader
+
+        headers = {
+            "User-Agent": "JuniorPreview/1.0 (+https://localhost)",
+            "Accept": "text/html,application/pdf;q=0.9,*/*;q=0.8",
+        }
+
+        with httpx.Client(follow_redirects=True, timeout=15.0, headers=headers) as client:
+            resp = client.get(url)
+
+        if resp.status_code >= 400:
+            return {"error": f"HTTP {resp.status_code} while fetching URL"}
+
+        content_type = (resp.headers.get("content-type") or "").lower()
+        is_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
+
+        if is_pdf:
+            try:
+                reader = PdfReader(BytesIO(resp.content))
+                extracted_pages = []
+                for page in reader.pages[:2]:
+                    extracted_pages.append(page.extract_text() or "")
+                full_text = "\n".join(extracted_pages).strip()
+                full_text = " ".join(full_text.split())
+                if not full_text:
+                    return {"error": "Could not extract text from PDF"}
+
+                summary = full_text[:1000] + "..." if len(full_text) > 1000 else full_text
+                parsed = urlparse(url)
+                title = parsed.path.rsplit("/", 1)[-1] or "PDF Preview"
+                return {
+                    "title": title,
+                    "content": summary,
+                    "full_text_length": len(full_text),
+                }
+            except Exception as e:
+                return {"error": f"PDF preview failed: {e}"}
+
+        html = resp.text
+        soup = BeautifulSoup(html, "lxml")
+
+        title = "Preview"
+        if soup.title and soup.title.string:
+            t = soup.title.string.strip()
+            if t:
+                title = t
+
+        for tag in soup(["script", "style", "noscript"]):
+            try:
+                tag.decompose()
+            except Exception:
+                pass
+
+        full_text = soup.get_text(separator=" ", strip=True)
+        full_text = " ".join(full_text.split())
+        if not full_text:
             return {"error": "Could not extract text"}
-            
-        # Basic summarization (first 1000 chars)
-        summary = text[:1000] + "..." if len(text) > 1000 else text
-        
+
+        summary = full_text[:1000] + "..." if len(full_text) > 1000 else full_text
         return {
-            "title": trafilatura.extract(downloaded, only_with_metadata=True).get('title', 'Preview'),
+            "title": title,
             "content": summary,
-            "full_text_length": len(text)
+            "full_text_length": len(full_text),
         }
     except Exception as e:
         logger.error(f"Preview failed for {url}: {e}")

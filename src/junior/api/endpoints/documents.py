@@ -8,9 +8,14 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional
 
+try:  # python-multipart provides `multipart`
+    import multipart  # type: ignore
+    _HAS_MULTIPART = True
+except ModuleNotFoundError:  # pragma: no cover
+    _HAS_MULTIPART = False
+
 from junior.core import get_logger, settings
 from junior.core.types import Court
-from junior.services import PDFProcessor, PIIRedactor, EmbeddingService
 from junior.db import DocumentRepository
 from junior.api.schemas import (
     DocumentUploadResponse,
@@ -25,90 +30,103 @@ logger = get_logger(__name__)
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+if _HAS_MULTIPART:
 
-@router.post("/upload", response_model=DocumentUploadResponse)
-async def upload_document(
-    file: UploadFile = File(...),
-    title: Optional[str] = Form(None),
-    court: Optional[str] = Form(None),
-    case_number: Optional[str] = Form(None),
-):
-    """
-    Upload a legal document (PDF)
-    
-    The document will be:
-    1. Saved to storage
-    2. PII redacted (locally)
-    3. Text extracted and chunked
-    4. Embeddings generated
-    5. Stored in vector database
-    """
-    # Validate file type
-    if not file.filename or not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    
-    logger.info(f"Uploading document: {file.filename}")
-    
-    try:
-        # Save file temporarily
-        document_id = str(uuid4())
-        file_path = UPLOAD_DIR / f"{document_id}.pdf"
-        
-        content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
-        
-        # Process PDF
-        processor = PDFProcessor()
-        document, chunks = processor.process_pdf(file_path, document_id)
-        
-        # PII Redaction
-        pii_redactor = PIIRedactor()
-        redacted_chunks = []
-        for chunk in chunks:
-            result = pii_redactor.redact(chunk.content)
-            chunk.content = result.redacted_text
-            redacted_chunks.append(chunk)
-        
-        # Generate embeddings
-        embedding_service = EmbeddingService()
-        for chunk in redacted_chunks:
-            chunk.embedding = await embedding_service.get_embedding(chunk.content)
+    @router.post("/upload", response_model=DocumentUploadResponse)
+    async def upload_document(
+        file: UploadFile = File(...),
+        title: Optional[str] = Form(None),
+        court: Optional[str] = Form(None),
+        case_number: Optional[str] = Form(None),
+    ):
+        """
+        Upload a legal document (PDF)
 
-        # Store locally so Agentic RAG works without Supabase
+        The document will be:
+        1. Saved to storage
+        2. PII redacted (locally)
+        3. Text extracted and chunked
+        4. Embeddings generated
+        5. Stored in vector database
+        """
+        from junior.services import PDFProcessor, PIIRedactor, EmbeddingService
+
+        # Validate file type
+        if not file.filename or not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+        logger.info(f"Uploading document: {file.filename}")
+
         try:
-            from junior.services.local_store import LocalDocumentStore
-            store = LocalDocumentStore(UPLOAD_DIR)
-            store.save_document(document)
-            store.save_chunks(document_id, redacted_chunks)
-        except Exception as e:
-            logger.warning(f"Local store save failed: {e}")
-        
-        # Store in Supabase (optional)
-        if settings.supabase_url and settings.supabase_key:
+            # Save file temporarily
+            document_id = str(uuid4())
+            file_path = UPLOAD_DIR / f"{document_id}.pdf"
+
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+
+            # Process PDF
+            processor = PDFProcessor()
+            document, chunks = processor.process_pdf(file_path, document_id)
+
+            # PII Redaction
+            pii_redactor = PIIRedactor()
+            redacted_chunks = []
+            for chunk in chunks:
+                result = pii_redactor.redact(chunk.content)
+                chunk.content = result.redacted_text
+                redacted_chunks.append(chunk)
+
+            # Generate embeddings
+            embedding_service = EmbeddingService()
+            for chunk in redacted_chunks:
+                chunk.embedding = await embedding_service.get_embedding(chunk.content)
+
+            # Store locally so Agentic RAG works without Supabase
             try:
-                doc_repo = DocumentRepository()
-                await doc_repo.create(document)
-                for chunk in redacted_chunks:
-                    await doc_repo.save_chunk(chunk)
+                from junior.services.local_store import LocalDocumentStore
+
+                store = LocalDocumentStore(UPLOAD_DIR)
+                store.save_document(document)
+                store.save_chunks(document_id, redacted_chunks)
             except Exception as e:
-                # Don't block uploads if DB write fails.
-                logger.warning(f"Supabase store failed (continuing with local store): {e}")
-        
-        # Keep uploaded PDF on disk (enables evidence vault / later viewing)
-        
-        return DocumentUploadResponse(
-            document_id=document_id,
-            title=title or document.title,
-            court=document.court.value,
-            pages=len(chunks),
-            chunks=len(redacted_chunks),
-            status="processed",
+                logger.warning(f"Local store save failed: {e}")
+
+            # Store in Supabase (optional)
+            if settings.supabase_url and settings.supabase_key:
+                try:
+                    doc_repo = DocumentRepository()
+                    await doc_repo.create(document)
+                    for chunk in redacted_chunks:
+                        await doc_repo.save_chunk(chunk)
+                except Exception as e:
+                    # Don't block uploads if DB write fails.
+                    logger.warning(f"Supabase store failed (continuing with local store): {e}")
+
+            # Keep uploaded PDF on disk (enables evidence vault / later viewing)
+
+            return DocumentUploadResponse(
+                document_id=document_id,
+                title=title or document.title,
+                court=document.court.value,
+                pages=len(chunks),
+                chunks=len(redacted_chunks),
+                status="processed",
+            )
+
+        except Exception as e:
+            logger.error(f"Upload error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+else:
+
+    @router.post("/upload")
+    async def upload_document_unavailable():
+        raise HTTPException(
+            status_code=503,
+            detail='File upload requires "python-multipart". Install it with: pip install python-multipart',
         )
-        
-    except Exception as e:
-        logger.error(f"Upload error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/search", response_model=list[DocumentSearchResult])
@@ -121,6 +139,7 @@ async def search_documents(request: DocumentSearchRequest):
     logger.info(f"Searching: {request.query[:50]}...")
     
     try:
+        from junior.services import EmbeddingService
         # Generate query embedding
         embedding_service = EmbeddingService()
         query_embedding = await embedding_service.get_embedding(request.query)

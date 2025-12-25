@@ -1519,7 +1519,14 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     ];
   });
 
+  // Start with no connections - they should only appear after "Analyze Wall"
   const [connections, setConnections] = useState<Connection[]>([]);
+
+  // Clear any old cached connections on mount
+  useEffect(() => {
+    // This ensures we always start fresh with no connections
+    setConnections([]);
+  }, []);
 
   const caseId = props.activeCase?.id ? String(props.activeCase.id) : 'default';
   const caseTitle = props.activeCase?.title ?? 'Current Matter';
@@ -1754,9 +1761,6 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           nextNodes = [...prev, newNode];
           return nextNodes;
         });
-
-        // Auto-analyze to generate links + reasons
-        void handleAnalyzeWall({ nodes: nextNodes, connections, silent: true });
       }
       setDraggedResearchItem(null);
     };
