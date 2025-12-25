@@ -6,10 +6,24 @@ import json
 import re
 from typing import Any, Optional, cast
 
+from junior.core import get_logger
 from junior.core.types import AgentRole, Citation, Court, CaseStatus
 from .base import BaseAgent, AgentState
 
+logger = get_logger(__name__)
+
 def _as_int(value: Any) -> Optional[int]:
+    """Convert value to int with proper error logging.
+    
+    Args:
+        value: Value to convert to integer
+        
+    Returns:
+        Integer value or None if conversion fails
+        
+    Logs:
+        Warning if conversion fails with non-empty value
+    """
     try:
         if value is None:
             return None
@@ -18,7 +32,13 @@ def _as_int(value: Any) -> Optional[int]:
         if isinstance(value, (int, str)) and str(value).strip():
             return int(value)
         return None
-    except Exception:
+    except (ValueError, TypeError) as e:
+        # Log the error so silent failures are visible
+        logger.warning(f"Failed to convert value to int: {value!r} - {e}")
+        return None
+    except Exception as e:
+        # Catch unexpected errors and log them
+        logger.error(f"Unexpected error converting value to int: {value!r} - {e}", exc_info=True)
         return None
 
 class ResearcherAgent(BaseAgent):
