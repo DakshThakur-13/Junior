@@ -46,6 +46,10 @@ export function ResearchPanel(props: {
   const [citationChecks, setCitationChecks] = useState<Record<string, { status: string; emoji: string; message: string }>>({});
   const [checkingCitation, setCheckingCitation] = useState<string | null>(null);
 
+  // Pagination State
+  const [displayLimit, setDisplayLimit] = useState(50);
+  const [hasMore, setHasMore] = useState(false);
+
   // Load saved data from localStorage
   useEffect(() => {
     try {
@@ -74,6 +78,7 @@ export function ResearchPanel(props: {
     const performSearch = async () => {
       setIsLoading(true);
       setLoadError(null);
+      setDisplayLimit(50); // Reset pagination on new search
       
       try {
         const res = await fetch('/api/v1/research/sources/search', {
@@ -88,7 +93,7 @@ export function ResearchPanel(props: {
                      category === 'study' ? 'Study' : null,
             authority: category === 'official' ? 'official' : 
                       category === 'study' ? 'study' : null,
-            limit: 100,
+            limit: 200,  // Request more results from backend
           }),
           signal: controller.signal,
         });
@@ -105,6 +110,10 @@ export function ResearchPanel(props: {
           const results = data.results || (Array.isArray(data) ? data : []);
           console.log('Search results:', results);
           setItems(results);
+          
+          // Reset display limit and check if more results available
+          setDisplayLimit(50);
+          setHasMore(results.length > 50);
           
           // Add to search history if query is meaningful
           if (query.trim() && query.length > 2) {
@@ -272,7 +281,15 @@ export function ResearchPanel(props: {
         {!isLoading && items.length > 0 && (
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-slate-500">
-              Found <span className="text-legal-gold font-semibold">{items.length}</span> resource{items.length === 1 ? '' : 's'}
+              {displayLimit < items.length ? (
+                <>
+                  Showing <span className="text-legal-gold font-semibold">{displayLimit}</span> of <span className="text-legal-gold font-semibold">{items.length}</span> result{items.length === 1 ? '' : 's'}
+                </>
+              ) : (
+                <>
+                  Found <span className="text-legal-gold font-semibold">{items.length}</span> resource{items.length === 1 ? '' : 's'}
+                </>
+              )}
             </span>
             {query && (
               <span className="text-slate-600">for "{query}"</span>
@@ -341,7 +358,7 @@ export function ResearchPanel(props: {
         {/* Results Grid */}
         {!isLoading && items.length > 0 && (
           <div className="space-y-3">
-            {items.map((item) => {
+            {items.slice(0, displayLimit).map((item) => {
               const citCheck = citationChecks[item.id];
               const isBookmarked = bookmarks.has(item.id);
 
@@ -462,6 +479,22 @@ export function ResearchPanel(props: {
                 </div>
               );
             })}
+            
+            {/* Show More Button */}
+            {items.length > displayLimit && (
+              <div className="flex justify-center pt-4 pb-2">
+                <button
+                  onClick={() => {
+                    const newLimit = displayLimit + 50;
+                    setDisplayLimit(newLimit);
+                    setHasMore(items.length > newLimit);
+                  }}
+                  className="px-6 py-2.5 rounded-lg bg-legal-gold/10 border border-legal-gold/30 text-legal-gold hover:bg-legal-gold/20 hover:border-legal-gold/50 transition-all duration-200 text-sm font-medium shadow-lg shadow-legal-gold/5 hover:shadow-legal-gold/10"
+                >
+                  Show More ({items.length - displayLimit} remaining)
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

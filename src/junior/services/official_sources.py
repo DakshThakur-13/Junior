@@ -202,7 +202,7 @@ async def search_live(query: str, category: Optional[str] = None, limit: int = 1
             # Run synchronous DDGS in a thread to avoid blocking the event loop
             def _do_search():
                 with DDGS() as ddgs:
-                    return list(ddgs.text(full_query, region="in-en", max_results=10))
+                    return list(ddgs.text(full_query, region="in-en", max_results=30))
             
             search_results = await asyncio.to_thread(_do_search)
             
@@ -271,18 +271,129 @@ async def search_live(query: str, category: Optional[str] = None, limit: int = 1
 
 
 # NOTE: Keep this list focused and genuinely official.
-# Avoid third-party aggregators.
+# Comprehensive catalog of ALL major Indian legal sources
 CATALOG: tuple[OfficialSource, ...] = (
+    # Central Acts & Bare Acts
     OfficialSource(
         id="os_india_code",
-        title="India Code (Legislative Department)",
-        type="Official",
-        summary="Official repository of Central Acts, Rules, Regulations, and Orders.",
+        title="India Code (Legislative Department) - All Central Acts",
+        type="Act",
+        summary="Official repository of ALL Central Acts, Rules, Regulations, and Orders including IPC, CrPC, CPC, Evidence Act, POCSO Act, Companies Act, Labour Laws, etc.",
         source="Government of India",
         url="https://www.indiacode.nic.in/",
         publisher="Legislative Department, Ministry of Law and Justice",
         authority="official",
-        tags=("acts", "rules", "central", "bare-act", "criminal", "civil"),
+        tags=("acts", "rules", "central", "bare-act", "criminal", "civil", "ipc", "crpc", "cpc", "evidence", "pocso", "companies", "labour", "family", "divorce", "marriage", "consumer", "ipc", "section", "code"),
+    ),
+    OfficialSource(
+        id="os_ipc",
+        title="Indian Penal Code (IPC) 1860 - Bare Act",
+        type="Act",
+        summary="Complete Indian Penal Code with all sections: Murder (302-304), Assault (351-358), Theft (378-382), Robbery (390-394), Rape (375-376), Criminal Conspiracy, etc.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_23_00037_186045_1523266765688",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("ipc", "criminal", "murder", "assault", "theft", "robbery", "rape", "section", "penal", "code", "302", "304", "307", "375", "376", "390", "498a"),
+    ),
+    OfficialSource(
+        id="os_crpc",
+        title="Code of Criminal Procedure (CrPC) 1973",
+        type="Act",
+        summary="Complete Criminal Procedure Code: FIR (154), Arrest, Bail, Trial procedure, Evidence, Appeals, etc.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_23_00006_197302_1517807324077",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("crpc", "criminal", "procedure", "fir", "arrest", "bail", "trial", "section", "154", "code"),
+    ),
+    OfficialSource(
+        id="os_pocso",
+        title="POCSO Act 2012 - Protection of Children from Sexual Offences",
+        type="Act",
+        summary="Complete POCSO Act 2012 with all sections for child protection, sexual offences against children, penalties, and special courts.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_56_00028_201232_1517807318534",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("pocso", "children", "sexual", "offence", "child", "protection", "abuse", "section", "act", "2012"),
+    ),
+    OfficialSource(
+        id="os_ipc_women",
+        title="IPC Sections for Crimes Against Women (498A, 304B, 376, etc.)",
+        type="Act",
+        summary="IPC Sections: Dowry Death (304B), Cruelty by Husband (498A), Rape (376), Outraging Modesty (354), Sexual Harassment (509)",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_23_00037_186045_1523266765688",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("women", "dowry", "498a", "304b", "376", "rape", "harassment", "cruelty", "modesty", "section"),
+    ),
+    OfficialSource(
+        id="os_cpc",
+        title="Code of Civil Procedure (CPC) 1908",
+        type="Act",
+        summary="Complete Civil Procedure Code: Suits, Appeals, Execution, Orders, Civil Courts jurisdiction, etc.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_23_00004_190805_1517807323164",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("cpc", "civil", "procedure", "suit", "appeal", "execution", "order", "section", "code"),
+    ),
+    OfficialSource(
+        id="os_evidence_act",
+        title="Indian Evidence Act 1872",
+        type="Act",
+        summary="Complete Evidence Act: Admissibility, Relevancy, Documentary Evidence, Oral Evidence, Expert Opinion, etc.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_23_00010_187201_1517807323504",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("evidence", "admissibility", "relevancy", "documentary", "oral", "expert", "section", "act"),
+    ),
+    OfficialSource(
+        id="os_family_law",
+        title="Hindu Marriage Act 1955 - Divorce, Maintenance, Child Custody",
+        type="Act",
+        summary="Hindu Marriage Act with provisions for divorce, judicial separation, alimony, maintenance, child custody.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_23_00062_195525_1517807326044",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("marriage", "divorce", "hindu", "maintenance", "alimony", "custody", "family", "section", "act"),
+    ),
+    OfficialSource(
+        id="os_consumer_act",
+        title="Consumer Protection Act 2019",
+        type="Act",
+        summary="Consumer rights, complaints, consumer courts, product liability, unfair trade practices, e-commerce.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_34_67_00011_201935_1596614950138",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("consumer", "protection", "rights", "complaint", "court", "liability", "trade", "ecommerce", "section", "act"),
+    ),
+    OfficialSource(
+        id="os_companies_act",
+        title="Companies Act 2013",
+        type="Act",
+        summary="Corporate governance, directors, shareholders, meetings, accounts, audit, mergers, liquidation.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/show-data?actid=AC_CEN_5_20_00018_201318_1517807320659",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("companies", "corporate", "governance", "directors", "shareholders", "audit", "merger", "section", "act"),
+    ),
+    OfficialSource(
+        id="os_labour_laws",
+        title="Labour Laws - Industrial Disputes, Factories, Minimum Wages",
+        type="Act",
+        summary="Industrial Disputes Act, Factories Act, Minimum Wages Act, Payment of Wages Act, ESI, PF Acts.",
+        source="India Code",
+        url="https://www.indiacode.nic.in/",
+        publisher="Legislative Department",
+        authority="official",
+        tags=("labour", "industrial", "disputes", "factories", "wages", "esi", "pf", "employment", "section", "act"),
     ),
     OfficialSource(
         id="os_egazette",
@@ -373,50 +484,149 @@ CATALOG: tuple[OfficialSource, ...] = (
         tags=("reports", "reform", "criminal", "civil"),
     ),
 
-    # High Courts (official portals)
+    # High Courts (official portals) - ALL major High Courts
     OfficialSource(
         id="os_delhi_hc",
-        title="Delhi High Court — Official Portal",
-        type="Official",
-        summary="High Court portal for cause lists, judgments, orders, and notices.",
+        title="Delhi High Court — Judgments, Orders, Cause Lists",
+        type="Precedent",
+        summary="Delhi High Court official portal with judgments, orders, cause lists for all civil and criminal matters.",
         source="Delhi High Court",
         url="https://delhihighcourt.nic.in/",
         publisher="Delhi High Court",
         authority="official",
-        tags=("high-court", "delhi", "civil", "criminal"),
+        tags=("high-court", "delhi", "civil", "criminal", "judgment", "order", "precedent"),
     ),
     OfficialSource(
         id="os_bombay_hc",
-        title="Bombay High Court — Official Portal",
-        type="Official",
-        summary="High Court portal for judgments, cause lists, and court information.",
+        title="Bombay High Court — Judgments, Orders, Cause Lists",
+        type="Precedent",
+        summary="Bombay High Court (Mumbai) official portal with judgments, orders, cause lists for Maharashtra and Goa.",
         source="Bombay High Court",
         url="https://bombayhighcourt.nic.in/",
         publisher="Bombay High Court",
         authority="official",
-        tags=("high-court", "bombay", "civil", "criminal"),
+        tags=("high-court", "bombay", "mumbai", "maharashtra", "goa", "civil", "criminal", "judgment"),
     ),
     OfficialSource(
         id="os_madras_hc",
-        title="Madras High Court — Official Portal",
-        type="Official",
-        summary="High Court portal for judgments, cause lists, and notices.",
+        title="Madras High Court — Judgments, Orders, Cause Lists",
+        type="Precedent",
+        summary="Madras High Court (Chennai) official portal with judgments, orders for Tamil Nadu and Puducherry.",
         source="Madras High Court",
         url="https://www.hcmadras.tn.nic.in/",
         publisher="Madras High Court",
         authority="official",
-        tags=("high-court", "madras", "civil", "criminal"),
+        tags=("high-court", "madras", "chennai", "tamil-nadu", "civil", "criminal", "judgment"),
     ),
     OfficialSource(
         id="os_calcutta_hc",
-        title="Calcutta High Court — Official Portal",
-        type="Official",
-        summary="High Court portal for judgments, cause lists, and court information.",
+        title="Calcutta High Court — Judgments, Orders, Cause Lists",
+        type="Precedent",
+        summary="Calcutta High Court (Kolkata) official portal with judgments for West Bengal.",
         source="Calcutta High Court",
         url="https://www.calcuttahighcourt.gov.in/",
         publisher="Calcutta High Court",
         authority="official",
-        tags=("high-court", "calcutta", "civil", "criminal"),
+        tags=("high-court", "calcutta", "kolkata", "west-bengal", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_karnataka_hc",
+        title="Karnataka High Court — Judgments, Orders",
+        type="Precedent",
+        summary="Karnataka High Court (Bangalore) official portal with judgments and orders.",
+        source="Karnataka High Court",
+        url="https://karnatakajudiciary.kar.nic.in/",
+        publisher="Karnataka High Court",
+        authority="official",
+        tags=("high-court", "karnataka", "bangalore", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_allahabad_hc",
+        title="Allahabad High Court — Judgments, Orders",
+        type="Precedent",
+        summary="Allahabad High Court (UP) official portal with judgments for Uttar Pradesh.",
+        source="Allahabad High Court",
+        url="https://allahabadhighcourt.in/",
+        publisher="Allahabad High Court",
+        authority="official",
+        tags=("high-court", "allahabad", "up", "uttar-pradesh", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_andhra_hc",
+        title="Andhra Pradesh High Court — Judgments",
+        type="Precedent",
+        summary="Andhra Pradesh High Court official portal with judgments and orders.",
+        source="AP High Court",
+        url="https://hc.ap.nic.in/",
+        publisher="Andhra Pradesh High Court",
+        authority="official",
+        tags=("high-court", "andhra", "pradesh", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_gujarat_hc",
+        title="Gujarat High Court — Judgments, Orders",
+        type="Precedent",
+        summary="Gujarat High Court (Ahmedabad) official portal with judgments.",
+        source="Gujarat High Court",
+        url="https://gujarathighcourt.nic.in/",
+        publisher="Gujarat High Court",
+        authority="official",
+        tags=("high-court", "gujarat", "ahmedabad", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_punjab_hc",
+        title="Punjab & Haryana High Court — Judgments",
+        type="Precedent",
+        summary="Punjab and Haryana High Court (Chandigarh) official portal.",
+        source="Punjab & Haryana HC",
+        url="https://phchd.nic.in/",
+        publisher="Punjab & Haryana High Court",
+        authority="official",
+        tags=("high-court", "punjab", "haryana", "chandigarh", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_kerala_hc",
+        title="Kerala High Court — Judgments, Orders",
+        type="Precedent",
+        summary="Kerala High Court (Ernakulam) official portal with judgments.",
+        source="Kerala High Court",
+        url="https://hckerala.gov.in/",
+        publisher="Kerala High Court",
+        authority="official",
+        tags=("high-court", "kerala", "ernakulam", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_rajasthan_hc",
+        title="Rajasthan High Court — Judgments, Orders",
+        type="Precedent",
+        summary="Rajasthan High Court (Jodhpur) official portal with judgments.",
+        source="Rajasthan High Court",
+        url="https://hcraj.nic.in/",
+        publisher="Rajasthan High Court",
+        authority="official",
+        tags=("high-court", "rajasthan", "jodhpur", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_mp_hc",
+        title="Madhya Pradesh High Court — Judgments",
+        type="Precedent",
+        summary="Madhya Pradesh High Court (Jabalpur) official portal.",
+        source="MP High Court",
+        url="https://mphc.gov.in/",
+        publisher="Madhya Pradesh High Court",
+        authority="official",
+        tags=("high-court", "madhya", "pradesh", "jabalpur", "civil", "criminal", "judgment"),
+    ),
+    OfficialSource(
+        id="os_orissa_hc",
+        title="Orissa High Court — Judgments, Orders",
+        type="Precedent",
+        summary="Orissa High Court (Cuttack) official portal with judgments.",
+        source="Orissa High Court",
+        url="https://orissahighcourt.nic.in/",
+        publisher="Orissa High Court",
+        authority="official",
+        tags=("high-court", "orissa", "odisha", "cuttack", "civil", "criminal", "judgment"),
     ),
 
     # Legal Aid (official)
@@ -497,12 +707,12 @@ CATALOG: tuple[OfficialSource, ...] = (
 )
 
 def _matches_query(item: OfficialSource, query: str) -> bool:
-    """Smart query matching with acronym support, partial matching, and token matching."""
+    """Ultra-flexible query matching with acronym support, partial matching, and fuzzy token matching."""
     q = query.strip().lower()
     if not q:
         return True
 
-    # Build searchable text
+    # Build comprehensive searchable text
     hay = " ".join(
         [
             item.title,
@@ -510,35 +720,62 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
             item.source,
             item.publisher,
             item.url,
+            item.type,
             " ".join(item.tags),
         ]
     ).lower()
     
-    # Direct substring match
+    # 1. Direct substring match (fastest)
     if q in hay:
         return True
     
-    # Token matching: check if ANY query word appears in the text (more flexible)
+    # 2. Token matching: if ANY query word appears ANYWHERE (super flexible)
     query_tokens = q.split()
-    if any(token in hay for token in query_tokens):
-        return True
-    
-    # Partial word matching: check if query is part of any word
-    hay_words = hay.split()
-    for word in hay_words:
-        if q in word or word in q:
+    for token in query_tokens:
+        if token in hay:
             return True
     
-    # Acronym matching: "IPC" should match "Indian Penal Code"
+    # 3. Partial word matching: check if query is part of any word OR any word contains query
+    hay_words = hay.split()
+    for word in hay_words:
+        # Query contains word OR word contains query
+        if q in word or word in q or any(token in word or word in token for token in query_tokens):
+            return True
+    
+    # 4. Acronym matching: "POCSO" matches "Protection of Children from Sexual Offences"
     # Check if query matches first letters of consecutive words
     for i in range(len(hay_words)):
-        # Build acronym from consecutive words
         acronym = ""
         for j in range(i, min(i + len(q), len(hay_words))):
             if hay_words[j]:
                 acronym += hay_words[j][0]
         if acronym == q:
             return True
+    
+    # 5. Common legal term expansion
+    legal_expansions = {
+        "pocso": ["protection", "children", "sexual", "offences", "child", "abuse"],
+        "crpc": ["criminal", "procedure", "code"],
+        "ipc": ["indian", "penal", "code"],
+        "cpc": ["civil", "procedure", "code"],
+        "murder": ["302", "304", "307", "homicide", "death", "killing"],
+        "assault": ["351", "352", "353", "354", "355", "attack", "violence"],
+        "rape": ["375", "376", "sexual", "assault", "women"],
+        "dowry": ["498a", "304b", "cruelty", "harassment", "women"],
+        "divorce": ["marriage", "matrimonial", "separation", "hindu", "muslim", "special"],
+        "consumer": ["protection", "complaint", "deficiency", "service", "product"],
+        "theft": ["378", "379", "380", "stealing", "robbery"],
+        "cheating": ["415", "416", "420", "fraud", "deception"],
+        "defamation": ["499", "500", "reputation", "slander", "libel"],
+        "corruption": ["prevention", "bribery", "public", "servant"],
+    }
+    
+    # Check if query or any token matches expansion terms
+    for key, expansions in legal_expansions.items():
+        if q == key or any(token == key for token in query_tokens):
+            # Check if any expansion term appears in the item
+            if any(exp in hay for exp in expansions):
+                return True
     
     return False
 
@@ -576,7 +813,7 @@ async def search_sources(
     *,
     category: Optional[str] = None,
     authority: Optional[str] = None,
-    limit: int = 50,
+    limit: int = 200,
 ) -> list[OfficialSource]:
     """Search the curated sources catalog AND live web."""
     
@@ -599,9 +836,11 @@ async def search_sources(
             if item.authority.lower() != authority.lower():
                 continue
 
-        # Filter by text query
-        if _matches_query(item, query):
+        # Filter by text query (if query is empty, include all items that pass category/authority filters)
+        if not query or _matches_query(item, query):
             catalog_results.append(item)
+
+    logger.info(f"Catalog search for '{query}': found {len(catalog_results)} items")
 
     # 2. If query is present, perform live search (minimum 2 characters)
     # Increase live search limit to get more comprehensive results
@@ -620,6 +859,8 @@ async def search_sources(
         except Exception as e:
             logger.error(f"Error in live search integration: {e}")
 
+    logger.info(f"Live search for '{query}': found {len(live_results)} items")
+
     # 3. Combine results (Live first if query exists, else Catalog)
     combined = live_results + catalog_results
     
@@ -632,6 +873,8 @@ async def search_sources(
             seen_urls.add(item.url)
 
     final_results = unique_results[:limit]
+    
+    logger.info(f"Final results for '{query}': {len(final_results)} items (after dedup from {len(combined)} combined)")
     
     # Cache the results (Expire after 24 hours)
     SEARCH_CACHE.set(cache_key, final_results, expire=86400)

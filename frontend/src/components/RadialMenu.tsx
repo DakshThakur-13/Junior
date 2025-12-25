@@ -91,7 +91,7 @@ export function RadialMenu({
       style={{
         position: 'fixed',
         left: `${pos.x}px`,
-        bottom: `${pos.y}px`,
+        top: `${pos.y}px`,
         zIndex: 9999,
       }}
     >
