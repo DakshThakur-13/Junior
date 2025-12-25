@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BrainCircuit, FileText, LogOut, Plus, Scale } from 'lucide-react';
 import { LayoutIcon } from './LayoutIcon';
 import type { ActiveTab, IconLike } from '../types';
+import './RadialMenu.css';
 
 const RADIAL_MENU_ITEMS: Array<{
   id: ActiveTab | 'home';
@@ -93,9 +94,9 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
       } as React.CSSProperties}
     >
       {/* Menu Items */}
-      <div className="absolute bottom-4 left-4 w-0 h-0">
+      <div className="absolute bottom-0 left-0 w-0 h-0">
         {RADIAL_MENU_ITEMS.map((item, idx) => {
-          const pos = positions[idx] || { x: 0, y: 0 };
+          const itemPos = positions[idx] || { x: 0, y: 0 };
           const isVisible = isOpen;
           
           return (
@@ -109,7 +110,7 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
                 }
                 setIsOpen(false);
               }}
-              className={`absolute -ml-6 -mt-6 flex items-center justify-center w-12 h-12 rounded-full glass-panel border backdrop-blur-xl shadow-xl transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) group
+              className={`radial-menu-item glass-panel border backdrop-blur-xl shadow-xl group
                 ${activeTab === item.id 
                   ? 'bg-legal-gold/20 border-legal-gold text-legal-gold shadow-glow scale-110' 
                   : 'bg-legal-surface/90 border-white/10 text-slate-400 hover:text-legal-gold hover:border-legal-gold/50 hover:scale-110'
@@ -117,8 +118,8 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
                 ${isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none scale-50'}
               `}
               style={{
-                '--item-x': isVisible ? `${pos.x}px` : '0',
-                '--item-y': isVisible ? `${pos.y}px` : '0',
+                '--item-x': isVisible ? `${itemPos.x}px` : '0',
+                '--item-y': isVisible ? `${itemPos.y}px` : '0',
                 '--item-delay': isVisible ? `${idx * 50}ms` : '0ms'
               } as React.CSSProperties}
               title={item.label}
