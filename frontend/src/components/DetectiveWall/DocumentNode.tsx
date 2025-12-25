@@ -21,7 +21,7 @@ export function DocumentNode(props: {
   insightSeverity?: WallInsightSeverity;
 }) {
   const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+  const dragStart = useRef({ x: 0, y: 0, initialX: 0, initialY: 0, hasMoved: false });
   const nodeRef = useRef<HTMLDivElement | null>(null);
 
   const statusColors: Record<NodeStatus, string> = {
@@ -51,12 +51,12 @@ export function DocumentNode(props: {
 
     e.stopPropagation();
     setIsDragging(true);
-    props.onSelect(props.id);
     dragStart.current = {
       x: e.clientX,
       y: e.clientY,
       initialX: props.x,
       initialY: props.y,
+      hasMoved: false,
     };
   };
 
@@ -66,9 +66,22 @@ export function DocumentNode(props: {
     const handleMouseMove = (e: MouseEvent) => {
       const dx = (e.clientX - dragStart.current.x) / props.scale;
       const dy = (e.clientY - dragStart.current.y) / props.scale;
+      
+      // Mark as moved if drag distance exceeds threshold (5 pixels)
+      if (!dragStart.current.hasMoved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+        dragStart.current.hasMoved = true;
+      }
+      
       props.onDrag(props.id, { x: dragStart.current.initialX + dx, y: dragStart.current.initialY + dy });
     };
-    const handleMouseUp = () => setIsDragging(false);
+    
+    const handleMouseUp = () => {
+      // Only open details panel if it was a click (not a drag)
+      if (!dragStart.current.hasMoved) {
+        props.onSelect(props.id);
+      }
+      setIsDragging(false);
+    };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
