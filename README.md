@@ -78,7 +78,7 @@ ZeroDay/
 ### Prerequisites
 - **Python 3.11+**
 - **Node.js 18+** & **npm**
-- **Groq API Key**
+- **Perplexity API Key** (recommended) or **Groq API Key**
 - **Supabase Account**
 
 ### 1. Backend Setup
@@ -100,8 +100,12 @@ ZeroDay/
 3. Configure environment:
    ```bash
    cp .env.example .env
-   # Edit .env with your API keys (GROQ_API_KEY, SUPABASE_URL, etc.)
+   # Edit .env with your API keys (PERPLEXITY_API_KEY and/or GROQ_API_KEY, SUPABASE_URL, etc.)
    ```
+
+   Minimum required (for Chat + Research):
+   - `PERPLEXITY_API_KEY` (recommended) OR `GROQ_API_KEY`
+   - `SUPABASE_URL`, `SUPABASE_KEY` (if you use the vector DB features)
 
 4. Run the backend server:
    ```bash
@@ -137,6 +141,46 @@ You can use the provided `start.bat` script to launch both backend and frontend 
 ```bash
 .\start.bat
 ```
+
+Note: `start.bat` is venv-aware and will prefer `.venv\Scripts\python.exe` when present.
+
+If you run `start.py` manually, use the venv interpreter to avoid “installed but not found” issues:
+```bash
+# Windows (PowerShell)
+& .\.venv\Scripts\python.exe .\start.py
+```
+
+## 🧪 Verification (Smoke Tests)
+
+With the backend running (`http://localhost:8000`), you can run the included test scripts:
+
+```bash
+# Search endpoint
+& .\.venv\Scripts\python.exe .\tests\test_api_search.py
+
+# Streaming chat endpoint
+& .\.venv\Scripts\python.exe .\tests\test_streaming.py
+
+# Direct chat service (uses your configured provider)
+& .\.venv\Scripts\python.exe .\tests\test_chat_quick.py
+```
+
+## 🛠️ Troubleshooting
+
+### “Unable to load sources. Please check backend connection.”
+- Ensure the backend is running on `http://localhost:8000`.
+- Confirm Vite proxy is active (frontend calls `/api/...`).
+- Make sure you installed backend deps in the same venv you’re running:
+   - `diskcache`
+   - `ddgs` (optional for live web search)
+
+### “langchain-perplexity is not installed”
+- Install deps into the project venv:
+   - `pip install -r requirements.txt`
+- Ensure you start the server with the venv interpreter (see One-Click Start / manual start above).
+
+### Chat returns “No API key configured”
+- Set `PERPLEXITY_API_KEY` and/or `GROQ_API_KEY` in `.env`.
 
 ## 📚 RAG “Training” on Public Manuals (Free)
 

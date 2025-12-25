@@ -45,6 +45,11 @@ uploads/
 # Logs
 *.log
 
+# Local runtime cache / pid files
+.cache/
+.backend.pid
+.server.pid
+
 # OS
 .DS_Store
 Thumbs.db

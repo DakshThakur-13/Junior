@@ -33,7 +33,10 @@ for query, description in test_queries:
         )
         
         if response.status_code == 200:
-            results = response.json()
+            payload = response.json()
+            results = payload.get("results") if isinstance(payload, dict) else payload
+            if not isinstance(results, list):
+                results = []
             print(f"✅ Status: {response.status_code}")
             print(f"   Results: {len(results)}")
             

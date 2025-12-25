@@ -10,6 +10,12 @@ echo.
 echo Starting application...
 echo.
 
-python start.py
+if exist ".venv\Scripts\python.exe" (
+	echo Using virtual environment: .venv\Scripts\python.exe
+	".venv\Scripts\python.exe" start.py
+) else (
+	echo WARNING: .venv not found, falling back to system Python
+	python start.py
+)
 
 pause

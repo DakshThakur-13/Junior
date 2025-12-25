@@ -1,37 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, FileText, LogOut, Plus, Scale } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { BrainCircuit, FileText, LogOut, Scale } from 'lucide-react';
 import { LayoutIcon } from './LayoutIcon';
-import type { ActiveTab, IconLike } from '../types';
-import './RadialMenu.css';
+import type { ActiveTab } from '../types';
 
-const RADIAL_MENU_ITEMS: Array<{
-  id: ActiveTab | 'home';
-  icon: IconLike;
-  label: string;
-}> = [
+const RADIAL_MENU_ITEMS = [
   { id: 'dashboard', icon: LayoutIcon, label: 'Detective Wall' },
   { id: 'strategy', icon: BrainCircuit, label: 'Strategy & Analytics' },
   { id: 'drafting', icon: FileText, label: 'Drafting Studio' },
   { id: 'home', icon: LogOut, label: 'Exit Case' },
-];
+] as const;
 
-export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: ActiveTab; setActiveTab: (t: ActiveTab) => void; onBack: () => void }) {
+export function RadialMenu({ 
+  activeTab, 
+  setActiveTab, 
+  onBack 
+}: { 
+  activeTab: ActiveTab; 
+  setActiveTab: (t: ActiveTab) => void; 
+  onBack: () => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   
-  // Draggable state - default to bottom-left corner
+  // Draggable state
   const [pos, setPos] = useState<{ x: number; y: number }>(() => {
     try {
       const saved = localStorage.getItem('junior:radialPos');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Ensure valid position
-        if (parsed.x >= 0 && parsed.y >= 0) {
-          return parsed;
-        }
-      }
+      if (saved) return JSON.parse(saved);
     } catch {}
-    // Default to bottom-left corner - use bottom positioning
-    return { x: 32, y: 32 }; // 32px from left, 32px from bottom
+    return { x: 32, y: 32 };
   });
 
   const [isDragging, setIsDragging] = useState(false);
@@ -72,7 +68,6 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    e.preventDefault();
     setIsDragging(true);
     hasDraggedRef.current = false;
     dragStartRef.current = {
@@ -83,62 +78,58 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
     };
   };
 
-  // Fan layout for bottom-left corner (Quarter circle: 0 to 90 degrees)
+  // Menu item positions (radial fan layout)
   const positions = [
-    { x: 0, y: -130 },       // 90° (Up)
-    { x: 65, y: -112.5 },    // 60°
-    { x: 112.5, y: -65 },    // 30°
-    { x: 130, y: 0 },        // 0° (Right)
+    { x: 0, y: -120 },      // Up
+    { x: 60, y: -104 },     // Up-Right
+    { x: 104, y: -60 },     // Right-Up
+    { x: 120, y: 0 },       // Right
   ];
 
   return (
     <div
-      className="radial-menu-root"
       style={{
+        position: 'fixed',
         left: `${pos.x}px`,
         bottom: `${pos.y}px`,
-      } as React.CSSProperties}
+        zIndex: 9999,
+      }}
     >
       {/* Menu Items */}
-      <div className="absolute w-0 h-0" style={{ left: 0, bottom: 0 }}>
-        {RADIAL_MENU_ITEMS.map((item, idx) => {
-          const itemPos = positions[idx] || { x: 0, y: 0 };
-          const isVisible = isOpen;
-          
-          return (
-            <button
-              key={item.id}
-              onClick={() => {
-                if (item.id === 'home') {
-                  onBack();
-                } else {
-                  setActiveTab(item.id as ActiveTab);
-                }
-                setIsOpen(false);
-              }}
-              className={`radial-menu-item glass-panel border backdrop-blur-xl shadow-xl group
-                ${activeTab === item.id 
-                  ? 'bg-legal-gold/20 border-legal-gold text-legal-gold shadow-glow scale-110' 
-                  : 'bg-legal-surface/90 border-white/10 text-slate-400 hover:text-legal-gold hover:border-legal-gold/50 hover:scale-110'
-                }
-                ${isVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none scale-50'}
-              `}
-              style={{
-                '--item-x': isVisible ? `${itemPos.x}px` : '0',
-                '--item-y': isVisible ? `${itemPos.y}px` : '0',
-                '--item-delay': isVisible ? `${idx * 50}ms` : '0ms'
-              } as React.CSSProperties}
-              title={item.label}
-            >
-              <item.icon size={20} strokeWidth={2.5} />
-              {/* Label */}
-              <span className={`absolute left-1/2 -translate-x-1/2 -bottom-8 px-2 py-1 text-[10px] font-bold uppercase tracking-wider bg-legal-surface/90 border border-white/10 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50`}>
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {isOpen && RADIAL_MENU_ITEMS.map((item, idx) => {
+        const itemPos = positions[idx];
+        const Icon = item.icon;
+        
+        return (
+          <button
+            key={item.id}
+            onClick={() => {
+              if (item.id === 'home') {
+                onBack();
+              } else {
+                setActiveTab(item.id as ActiveTab);
+              }
+              setIsOpen(false);
+            }}
+            style={{
+              position: 'absolute',
+              left: '0',
+              bottom: '0',
+              transform: `translate(${itemPos.x}px, ${itemPos.y}px)`,
+              transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+              transitionDelay: `${idx * 50}ms`,
+            }}
+            className={`flex items-center justify-center w-12 h-12 rounded-full border backdrop-blur-xl shadow-xl
+              ${activeTab === item.id 
+                ? 'bg-amber-500/20 border-amber-500 text-amber-500' 
+                : 'bg-slate-800/90 border-white/10 text-slate-400 hover:text-amber-500 hover:border-amber-500/50'
+              }`}
+            title={item.label}
+          >
+            <Icon size={20} strokeWidth={2.5} />
+          </button>
+        );
+      })}
 
       {/* Main Toggle Button */}
       <button
@@ -148,18 +139,18 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
             setIsOpen(!isOpen);
           }
         }}
-        className={`relative z-10 flex items-center justify-center w-16 h-16 rounded-full glass-panel border-2 shadow-2xl transition-all duration-300 group cursor-move
+        style={{
+          position: 'relative',
+          zIndex: 10,
+          cursor: isDragging ? 'grabbing' : 'grab',
+        }}
+        className={`flex items-center justify-center w-16 h-16 rounded-full border-2 shadow-2xl transition-all duration-300
           ${isOpen 
-            ? 'bg-legal-gold text-legal-surface border-legal-gold rotate-45 scale-110 shadow-glow' 
-            : 'bg-legal-surface/90 text-legal-gold border-legal-gold/50 hover:border-legal-gold hover:scale-105'
+            ? 'bg-amber-500 text-slate-900 border-amber-500 rotate-45' 
+            : 'bg-slate-800/90 text-amber-500 border-amber-500/50 hover:border-amber-500'
           }`}
       >
-        {isOpen ? <Plus size={32} strokeWidth={3} /> : <Scale size={32} strokeWidth={2.5} />}
-        
-        {/* Orb Glow Effect */}
-        {!isOpen && (
-          <span className="absolute inset-0 rounded-full bg-legal-gold/20 animate-pulse"></span>
-        )}
+        <Scale size={32} strokeWidth={2.5} />
       </button>
     </div>
   );

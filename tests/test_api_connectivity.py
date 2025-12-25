@@ -47,10 +47,10 @@ tests = [
     ("POST", "/research/devils-advocate", {"query": "test"}, "Research - Devils Advocate"),
     ("POST", "/format/preview", {"content": "test", "template": "petition"}, "Format - Preview Document"),
     ("GET", "/format/templates", None, "Format - Get Templates"),
-    ("POST", "/judges/analyze", {"judge_name": "Test Judge"}, "Judges - Analyze"),
+    ("POST", "/judges/analyze", {"judge_name": "Test Judge", "judgments": ["This is a sample judgment excerpt."]}, "Judges - Analyze"),
     ("POST", "/wall/analyze", {"content": "test case"}, "DetectiveWall - Analyze"),
     ("POST", "/audio/transcribe", {}, "Audio - Transcribe (will fail - needs file)"),
-    ("POST", "/chat", {"message": "hi", "language": "en"}, "Chat - Send Message"),
+    ("POST", "/chat/stream", {"message": "hi", "language": "en"}, "Chat - Streaming"),
 ]
 
 for method, endpoint, data, description in tests:
