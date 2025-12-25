@@ -62,6 +62,7 @@ class TranslationService:
     # Language code to name mapping
     LANGUAGE_NAMES = {
         "hi": "Hindi",
+        "hi-latn": "Hinglish",  # Hindi in Roman script
         "mr": "Marathi",
         "ta": "Tamil",
         "te": "Telugu",
@@ -77,6 +78,7 @@ class TranslationService:
     INDICTRANS_CODES = {
         "en": "eng_Latn",
         "hi": "hin_Deva",
+        "hi-latn": "hin_Latn",  # Hindi in Roman script (Hinglish)
         "mr": "mar_Deva",
         "ta": "tam_Taml",
         "te": "tel_Telu",

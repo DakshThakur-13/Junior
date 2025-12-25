@@ -39,6 +39,98 @@ import type {
   ShepardizeResult,
 } from './types';
 
+type ChatLanguage = 'en' | 'hi' | 'mr';
+type OutputScript = 'native' | 'roman';
+
+type GlossaryResponse = {
+  term?: string;
+  definition?: string;
+  category?: string | null;
+};
+
+function escapeRegExp(input: string) {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function useLegalTermRenderer() {
+  const cacheRef = useRef<Record<string, GlossaryResponse | null>>({});
+
+  // Fallback list (used when backend doesn't provide preservedTerms).
+  const FALLBACK_TERMS = useMemo(
+    () => [
+      'Anticipatory Bail',
+      'Writ Petition',
+      'Special Leave Petition',
+      'Stay Order',
+      'Interim Relief',
+      'Habeas Corpus',
+      'Mandamus',
+      'Certiorari',
+      'Quo Warranto',
+      'Res Judicata',
+      'Prima Facie',
+      'FIR',
+      'IPC',
+      'CrPC',
+      'CPC',
+    ],
+    []
+  );
+
+  const fetchDefinition = useCallback(async (term: string) => {
+    const key = term.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(cacheRef.current, key)) return;
+    cacheRef.current[key] = null;
+    try {
+      const res = await fetch(`/api/v1/translate/glossary/${encodeURIComponent(term)}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as GlossaryResponse;
+      cacheRef.current[key] = data;
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const render = useCallback(
+    (content: string, msg?: ChatMessage) => {
+      const terms = (msg?.preservedTerms && msg.preservedTerms.length ? msg.preservedTerms : FALLBACK_TERMS)
+        .filter((t) => typeof t === 'string' && t.trim().length)
+        .map((t) => t.trim());
+
+      if (!terms.length) return content;
+
+      const canonicalByLower: Record<string, string> = {};
+      for (const t of terms) canonicalByLower[t.toLowerCase()] = t;
+
+      const re = new RegExp(`(${[...terms].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})`, 'gi');
+      const parts = content.split(re);
+      if (parts.length === 1) return content;
+
+      return parts.map((p, idx) => {
+        const canonical = canonicalByLower[p.toLowerCase()];
+        if (!canonical) return <span key={idx}>{p}</span>;
+
+        const cached = cacheRef.current[canonical.toLowerCase()];
+        const title = cached?.definition || 'Loading definition…';
+
+        return (
+          <span
+            key={idx}
+            onMouseEnter={() => void fetchDefinition(canonical)}
+            title={title}
+            className="underline decoration-dotted underline-offset-4 text-legal-gold/90"
+          >
+            {p}
+          </span>
+        );
+      });
+    },
+    [FALLBACK_TERMS, fetchDefinition]
+  );
+
+  return render;
+}
+
 function DraftingStudio() {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const dictateInputRef = useRef<HTMLInputElement | null>(null);
@@ -1427,11 +1519,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     ];
   });
 
-  const [connections, setConnections] = useState<Connection[]>([
-    { from: 1, to: 2, label: 'Contradicts', type: 'conflict' },
-    { from: 2, to: 3, label: 'Disproves', type: 'conflict' },
-    { from: 3, to: 4, label: 'Supports', type: 'normal' },
-  ]);
+  const [connections, setConnections] = useState<Connection[]>([]);
 
   const caseId = props.activeCase?.id ? String(props.activeCase.id) : 'default';
   const caseTitle = props.activeCase?.title ?? 'Current Matter';
@@ -1617,6 +1705,9 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages(chatStorageKey) ?? defaultWelcome);
   const [chatSessionId, setChatSessionId] = useState<string | null>(null);
   const [suggestActions, setSuggestActions] = useState(true);
+  const [chatLanguage, setChatLanguage] = useState<ChatLanguage>('en');
+  const [chatOutputScript, setChatOutputScript] = useState<OutputScript>('native');
+  const renderLegalTerms = useLegalTermRenderer();
 
   useEffect(() => {
     setMessages(loadStoredMessages(chatStorageKey) ?? defaultWelcome);
@@ -1755,7 +1846,12 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
     
     try {
-      const payload: Record<string, unknown> = { message, language: 'en' };
+      const payload: Record<string, unknown> = {
+        message,
+        language: chatLanguage,
+        input_language: chatLanguage === 'en' ? null : chatLanguage,
+        output_script: chatLanguage === 'en' ? null : chatOutputScript,
+      };
       if (chatSessionId) payload.session_id = chatSessionId;
 
       // Use streaming endpoint for ChatGPT-like experience
@@ -1799,7 +1895,19 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
                   const newMessages = [...prev];
                   newMessages[assistantMsgIndex] = {
                     role: 'assistant',
-                    content: fullResponse
+                    content: fullResponse,
+                    preservedTerms: newMessages[assistantMsgIndex]?.preservedTerms,
+                  };
+                  return newMessages;
+                });
+              } else if (data.type === 'meta' && Array.isArray(data.preserved_terms)) {
+                const preserved = data.preserved_terms.filter((t: unknown) => typeof t === 'string') as string[];
+                setMessages((prev) => {
+                  const newMessages = [...prev];
+                  const existing = newMessages[assistantMsgIndex];
+                  newMessages[assistantMsgIndex] = {
+                    ...(existing ?? { role: 'assistant', content: fullResponse }),
+                    preservedTerms: preserved,
                   };
                   return newMessages;
                 });
@@ -2105,6 +2213,11 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           suggestActions={suggestActions}
           onToggleSuggestActions={() => setSuggestActions((v) => !v)}
           caseTitle={caseTitle}
+          language={chatLanguage}
+          outputScript={chatOutputScript}
+          onChangeLanguage={(lang) => setChatLanguage(lang)}
+          onChangeOutputScript={(s) => setChatOutputScript(s)}
+          renderMessageContent={renderLegalTerms}
         />
 
         {selectedNode !== null && (

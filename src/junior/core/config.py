@@ -103,6 +103,9 @@ class Settings(BaseSettings):
     enable_pii_redaction: bool = True
     watermark_drafts: bool = True
 
+    # Admin API
+    admin_api_key: str = Field(default="")
+
     # Translation
     default_source_lang: str = "en"
     supported_languages: str = "en,hi,mr,ta,te,bn,gu,kn,ml,pa"

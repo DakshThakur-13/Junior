@@ -4,6 +4,7 @@ API Request/Response Schemas
 
 from datetime import datetime
 from typing import Optional
+from typing import Literal
 from pydantic import BaseModel, Field
 
 from junior.core.types import Language, Court, CaseStatus
@@ -111,6 +112,14 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None  # None to create new session
     message: str = Field(..., min_length=1, max_length=5000)
     language: Language = Language.ENGLISH
+    input_language: Optional[Language] = Field(
+        default=None,
+        description="Optional hint for the language of `message` (useful for Roman-script Hindi/Marathi).",
+    )
+    output_script: Optional[Literal["native", "roman"]] = Field(
+        default=None,
+        description="Optional output script preference for Indic languages (native script or Romanized).",
+    )
     protocol_id: Optional[str] = Field(default=None, description="Optional lawyer protocol id (e.g., criminal_anticipatory_bail_438)")
 
 class ChatResponse(BaseModel):

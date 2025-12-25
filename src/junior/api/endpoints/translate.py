@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from junior.core import get_logger
 from junior.core.types import Language
 from junior.services import TranslationService
+from junior.services.legal_glossary import get_glossary_service
 from junior.api.schemas import TranslateRequest, TranslateResponse
 
 router = APIRouter()
@@ -125,3 +126,25 @@ async def list_languages():
         ],
         "default": "en",
     }
+
+
+@router.get("/glossary/{term}")
+async def glossary_lookup(term: str):
+    """Lookup a legal term definition for hover-to-reveal UX."""
+    try:
+        svc = get_glossary_service()
+        found = await svc.lookup_term(term)
+        if not found:
+            raise HTTPException(status_code=404, detail="Term not found")
+
+        return {
+            "term": found.term,
+            "definition": found.definition,
+            "category": found.category,
+            "related_terms": found.related_terms,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Glossary lookup error: {e}")
+        raise HTTPException(status_code=500, detail="Glossary lookup failed")

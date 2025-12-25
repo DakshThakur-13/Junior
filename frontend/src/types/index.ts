@@ -82,6 +82,7 @@ export type ChatMessage = {
   content: string;
   hasConflict?: boolean;
   conflictDetail?: string;
+  preservedTerms?: string[];
 };
 
 // Icon and UI Types

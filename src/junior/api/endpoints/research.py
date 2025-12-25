@@ -297,7 +297,15 @@ async def search_official_sources(request: OfficialSourcesSearchRequest):
     It returns a curated catalog with metadata the UI can display and open.
     """
     try:
-        from junior.services.official_sources import search_sources
+        try:
+            from junior.services.official_sources import search_sources
+        except ImportError as import_err:
+            logger.error(f"official_sources module not found: {import_err}")
+            # Return empty results if service not available
+            return OfficialSourcesSearchResponse(
+                query=request.query,
+                results=[],
+            )
 
         items = await search_sources(
             request.query,

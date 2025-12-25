@@ -7,12 +7,13 @@ Serves the professional Vite/React frontend build from `frontend/dist`.
 
 from pathlib import Path
 from contextlib import asynccontextmanager
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from junior.core import settings, get_logger
 from junior.api import api_router
@@ -48,6 +49,15 @@ async def lifespan(app: FastAPI):
 
     if settings.enable_pii_redaction:
         logger.info("✅ PII Redaction enabled")
+
+    # Pre-initialize glossary service
+    try:
+        from junior.services.legal_glossary import get_glossary_service
+        glossary = get_glossary_service()
+        # Glossary is initialized lazily, just ensure it's imported
+        logger.info("✅ Legal glossary service ready")
+    except Exception as e:
+        logger.warning(f"⚠️  Glossary initialization warning: {e}")
 
     yield
 
@@ -97,6 +107,33 @@ app.add_middleware(
 # Mount static files
 if FRONTEND_ASSETS_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_ASSETS_DIR)), name="assets")
+
+# Global exception handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions"""
+    logger.error(
+        f"Unhandled exception: {request.method} {request.url.path}",
+        exc_info=True
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Please check logs or try again later."}
+    )
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests with timing"""
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+    
+    logger.info(
+        f"{request.method} {request.url.path} "
+        f"→ {response.status_code} ({duration:.3f}s)"
+    )
+    return response
 
 # Include API router
 app.include_router(api_router)

@@ -26,6 +26,7 @@ class Language(str, Enum):
     """Supported languages"""
     ENGLISH = "en"
     HINDI = "hi"
+    HINGLISH = "hi-latn"  # Hindi in Roman script (Hinglish)
     MARATHI = "mr"
     TAMIL = "ta"
     TELUGU = "te"
