@@ -797,58 +797,30 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
     
     return False
 
-def get_preview(url: str) -> dict:
+async def get_preview(url: str) -> dict:
     """
     Fetches and extracts main content from a URL for instant preview.
-    Uses trafilatura for robust extraction when available, otherwise falls back
-    to a lightweight httpx + BeautifulSoup extraction.
     """
+    from io import BytesIO
+    from urllib.parse import urlparse
+    import httpx
+    from bs4 import BeautifulSoup
+    from pypdf import PdfReader
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+    }
+
     try:
-        trafilatura = None
-        try:
-            import trafilatura as _trafilatura  # type: ignore
-
-            trafilatura = _trafilatura
-        except Exception:
-            trafilatura = None
-
-        if trafilatura is not None:
-            downloaded = trafilatura.fetch_url(url)
-            if not downloaded:
-                return {"error": "Could not fetch URL"}
-
-            text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-            if not text:
-                return {"error": "Could not extract text"}
-
-            summary = text[:1000] + "..." if len(text) > 1000 else text
-            try:
-                meta = trafilatura.extract(downloaded, only_with_metadata=True)
-                title = meta.get("title", "Preview") if isinstance(meta, dict) else "Preview"
-            except Exception:
-                title = "Preview"
-
-            return {
-                "title": title,
-                "content": summary,
-                "full_text_length": len(text),
-            }
-
-        # Fallback: httpx + BeautifulSoup (and PDF via pypdf)
-        from io import BytesIO
-        from urllib.parse import urlparse
-
-        import httpx
-        from bs4 import BeautifulSoup
-        from pypdf import PdfReader
-
-        headers = {
-            "User-Agent": "JuniorPreview/1.0 (+https://localhost)",
-            "Accept": "text/html,application/pdf;q=0.9,*/*;q=0.8",
-        }
-
-        with httpx.Client(follow_redirects=True, timeout=15.0, headers=headers) as client:
-            resp = client.get(url)
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0, headers=headers, verify=False) as client:
+            resp = await client.get(url)
 
         if resp.status_code >= 400:
             return {"error": f"HTTP {resp.status_code} while fetching URL"}
@@ -856,57 +828,126 @@ def get_preview(url: str) -> dict:
         content_type = (resp.headers.get("content-type") or "").lower()
         is_pdf = "application/pdf" in content_type or url.lower().split("?")[0].endswith(".pdf")
 
+        full_text = ""
+        title = "Preview"
+
         if is_pdf:
             try:
                 reader = PdfReader(BytesIO(resp.content))
                 extracted_pages = []
-                for page in reader.pages[:2]:
+                for page in reader.pages[:5]:
                     extracted_pages.append(page.extract_text() or "")
                 full_text = "\n".join(extracted_pages).strip()
                 full_text = " ".join(full_text.split())
-                if not full_text:
-                    return {"error": "Could not extract text from PDF"}
-
-                summary = full_text[:1000] + "..." if len(full_text) > 1000 else full_text
+                
                 parsed = urlparse(url)
                 title = parsed.path.rsplit("/", 1)[-1] or "PDF Preview"
-                return {
-                    "title": title,
-                    "content": summary,
-                    "full_text_length": len(full_text),
-                }
             except Exception as e:
                 return {"error": f"PDF preview failed: {e}"}
+        else:
+            html = resp.text
+            soup = BeautifulSoup(html, "lxml")
 
-        html = resp.text
-        soup = BeautifulSoup(html, "lxml")
+            if soup.title and soup.title.string:
+                t = soup.title.string.strip()
+                if t:
+                    title = t
 
-        title = "Preview"
-        if soup.title and soup.title.string:
-            t = soup.title.string.strip()
-            if t:
-                title = t
-
-        for tag in soup(["script", "style", "noscript"]):
-            try:
+            # Remove clutter tags
+            for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside", "form", "iframe", "svg"]):
                 tag.decompose()
-            except Exception:
-                pass
 
-        full_text = soup.get_text(separator=" ", strip=True)
-        full_text = " ".join(full_text.split())
+            # Remove clutter by class/id
+            bad_selectors = [
+                ".header", ".footer", ".nav", ".sidebar", ".menu", ".cookie-banner", 
+                ".advertisement", ".social-share", "#header", "#footer", "#nav", "#sidebar",
+                ".breadcrumbs", ".pagination", ".related-posts", ".comments"
+            ]
+            for selector in bad_selectors:
+                for tag in soup.select(selector):
+                    tag.decompose()
+
+            # Try to find main content
+            main_content = (
+                soup.find("main") or 
+                soup.find("article") or 
+                soup.find(id="content") or 
+                soup.find(class_="content") or 
+                soup.find(id="main") or
+                soup.find(class_="main") or
+                soup.find(class_="post-content") or
+                soup.find(class_="entry-content")
+            )
+            
+            if main_content:
+                full_text = main_content.get_text(separator="\n", strip=True)
+            else:
+                full_text = soup.body.get_text(separator="\n", strip=True) if soup.body else soup.get_text(separator="\n", strip=True)
+
+            # Clean up whitespace
+            full_text = re.sub(r'\n\s*\n', '\n\n', full_text)
+            full_text = full_text.strip()
+
         if not full_text:
             return {"error": "Could not extract text"}
 
-        summary = full_text[:1000] + "..." if len(full_text) > 1000 else full_text
+        summary = full_text[:2000] + "..." if len(full_text) > 2000 else full_text
+        
+        # AI Analysis
+        analysis = await _analyze_content(full_text, title)
+
         return {
             "title": title,
             "content": summary,
             "full_text_length": len(full_text),
+            **analysis
         }
     except Exception as e:
         logger.error(f"Preview failed for {url}: {e}")
         return {"error": str(e)}
+
+async def _analyze_content(text: str, title: str) -> dict:
+    """Uses LLM to extract metadata and summary."""
+    if not ChatGroq or not settings.GROQ_API_KEY:
+        return {}
+
+    try:
+        llm = ChatGroq(
+            temperature=0,
+            model_name="llama-3.3-70b-versatile",
+            api_key=settings.GROQ_API_KEY
+        )
+        
+        prompt = f"""You are an expert legal researcher. Analyze this document text deeply.
+Title: {title}
+Text (excerpt): {text[:10000]}
+
+Return a JSON object with these keys:
+1. "summary_ai": A comprehensive summary of the document (2-3 paragraphs). Focus on the legal reasoning, facts, and conclusion.
+2. "key_points": A list of 3-5 crucial legal points or findings.
+3. "metadata": Object with fields "court", "date", "case_number", "judge", "parties", "citation". Use "Unknown" if not found.
+4. "connections": List of objects {{ "title": "Case Name", "type": "precedent/related/contradiction", "reason": "Why it is relevant" }}. Max 5 connections.
+5. "quotes": List of 2-3 significant quotes from the text.
+
+JSON ONLY. No markdown.
+"""
+        messages = [
+            SystemMessage(content="You are a legal AI. Output valid JSON only."),
+            HumanMessage(content=prompt)
+        ]
+        
+        response = await llm.ainvoke(messages)
+        content = response.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3]
+        elif content.startswith("```"):
+            content = content[3:-3]
+        
+        data = json.loads(content)
+        return data
+    except Exception as e:
+        logger.warning(f"AI analysis failed: {e}")
+        return {}
 
 
 async def search_sources(

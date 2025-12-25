@@ -3,7 +3,7 @@ Research endpoints
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import Optional
+from typing import Optional, List
 
 from junior.core import get_logger
 from junior.core.types import Language
@@ -28,9 +28,26 @@ from pydantic import BaseModel
 class PreviewRequest(BaseModel):
     url: str
 
+class DocumentMetadata(BaseModel):
+    court: Optional[str] = None
+    date: Optional[str] = None
+    case_number: Optional[str] = None
+    judge: Optional[str] = None
+    parties: Optional[str] = None
+
+class DocumentConnection(BaseModel):
+    title: str
+    type: str
+    reason: str
+
 class PreviewResponse(BaseModel):
     title: str
     content: str
+    summary_ai: Optional[str] = None
+    key_points: List[str] = []
+    quotes: List[str] = []
+    metadata: Optional[DocumentMetadata] = None
+    connections: List[DocumentConnection] = []
     full_text_length: int
     error: Optional[str] = None
 
@@ -343,10 +360,15 @@ async def preview_source(request: PreviewRequest):
     try:
         from junior.services.official_sources import get_preview
         
-        result = get_preview(request.url)
+        result = await get_preview(request.url)
         return PreviewResponse(
             title=result.get("title", "Preview"),
             content=result.get("content", ""),
+            summary_ai=result.get("summary_ai"),
+            key_points=result.get("key_points", []),
+            quotes=result.get("quotes", []),
+            metadata=result.get("metadata"),
+            connections=result.get("connections", []),
             full_text_length=result.get("full_text_length", 0),
             error=result.get("error")
         )

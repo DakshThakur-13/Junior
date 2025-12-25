@@ -1749,7 +1749,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           date: new Date().toLocaleDateString(),
           status: 'Verified',
           x: x - 160,
-          y: y - 50,
+          y: y - 80,
           rotation: Math.random() * 6 - 3,
           pinColor: 'blue',
           source: draggedResearchItem.item.source,
