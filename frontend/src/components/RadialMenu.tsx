@@ -18,14 +18,20 @@ const RADIAL_MENU_ITEMS: Array<{
 export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: ActiveTab; setActiveTab: (t: ActiveTab) => void; onBack: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   
-  // Draggable state
+  // Draggable state - default to bottom-left corner
   const [pos, setPos] = useState<{ x: number; y: number }>(() => {
     try {
       const saved = localStorage.getItem('junior:radialPos');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Ensure valid position
+        if (parsed.x >= 0 && parsed.y >= 0) {
+          return parsed;
+        }
+      }
     } catch {}
-    // Default to bottom-left (approximate)
-    return { x: 32, y: window.innerHeight - 96 };
+    // Default to bottom-left corner - use bottom positioning
+    return { x: 32, y: 32 }; // 32px from left, 32px from bottom
   });
 
   const [isDragging, setIsDragging] = useState(false);
@@ -89,12 +95,12 @@ export function RadialMenu({ activeTab, setActiveTab, onBack }: { activeTab: Act
     <div
       className="radial-menu-root"
       style={{
-        '--radial-x': `${pos.x}px`,
-        '--radial-y': `${pos.y}px`
+        left: `${pos.x}px`,
+        bottom: `${pos.y}px`,
       } as React.CSSProperties}
     >
       {/* Menu Items */}
-      <div className="absolute bottom-0 left-0 w-0 h-0">
+      <div className="absolute w-0 h-0" style={{ left: 0, bottom: 0 }}>
         {RADIAL_MENU_ITEMS.map((item, idx) => {
           const itemPos = positions[idx] || { x: 0, y: 0 };
           const isVisible = isOpen;
