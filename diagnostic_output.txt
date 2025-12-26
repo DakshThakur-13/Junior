@@ -1,0 +1,208 @@
+﻿C:/Users/SOHAM/Junior/.venv/Scripts/python.exe : 
+C:\Users\SOHAM\Junior\.venv\Lib\site-packages\langchain_core\_api\deprecation.py:26: UserWarning: Core Pydantic V1 functionality 
+isn't compatible with Python 3.14 or greater.
+At line:1 char:1
++ C:/Users/SOHAM/Junior/.venv/Scripts/python.exe diagnostic.py 2>&1 | O ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\SOHAM\....14 or greater.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  from pydantic.v1.fields import FieldInfo as FieldInfoV1
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Python314\Lib\logging\__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f50d' in position 91: character maps to <undefined>
+Call stack:
+  File "C:\Users\SOHAM\Junior\diagnostic.py", line 107, in <module>
+    results = asyncio.run(test_search())
+  File "C:\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+  File "C:\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Python314\Lib\asyncio\base_events.py", line 706, in run_until_complete
+    self.run_forever()
+  File "C:\Python314\Lib\asyncio\base_events.py", line 677, in run_forever
+    self._run_once()
+  File "C:\Python314\Lib\asyncio\base_events.py", line 2046, in _run_once
+    handle._run()
+  File "C:\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\SOHAM\Junior\diagnostic.py", line 104, in test_search
+    results = await search_sources("rape", limit=200)
+  File "C:\Users\SOHAM\Junior\src\junior\services\official_sources.py", line 824, in search_sources
+    logger.info(f"\U0001f50d SEARCH STARTED: query='{query}', category={category}, authority={authority}, limit={limit}")
+Message: "\U0001f50d SEARCH STARTED: query='rape', category=None, authority=None, limit=200"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Python314\Lib\logging\__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f511' in position 91: character maps to <undefined>
+Call stack:
+  File "C:\Users\SOHAM\Junior\diagnostic.py", line 107, in <module>
+    results = asyncio.run(test_search())
+  File "C:\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+  File "C:\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Python314\Lib\asyncio\base_events.py", line 706, in run_until_complete
+    self.run_forever()
+  File "C:\Python314\Lib\asyncio\base_events.py", line 677, in run_forever
+    self._run_once()
+  File "C:\Python314\Lib\asyncio\base_events.py", line 2046, in _run_once
+    handle._run()
+  File "C:\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\SOHAM\Junior\diagnostic.py", line 104, in test_search
+    results = await search_sources("rape", limit=200)
+  File "C:\Users\SOHAM\Junior\src\junior\services\official_sources.py", line 828, in search_sources
+    logger.info(f"\U0001f511 Cache key: {cache_key}")
+Message: '\U0001f511 Cache key: v4::combined::rape::None::None::200'
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Python314\Lib\logging\__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f4be' in position 91: character maps to <undefined>
+Call stack:
+  File "C:\Users\SOHAM\Junior\diagnostic.py", line 107, in <module>
+    results = asyncio.run(test_search())
+  File "C:\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+  File "C:\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Python314\Lib\asyncio\base_events.py", line 706, in run_until_complete
+    self.run_forever()
+  File "C:\Python314\Lib\asyncio\base_events.py", line 677, in run_forever
+    self._run_once()
+  File "C:\Python314\Lib\asyncio\base_events.py", line 2046, in _run_once
+    handle._run()
+  File "C:\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\SOHAM\Junior\diagnostic.py", line 104, in test_search
+    results = await search_sources("rape", limit=200)
+  File "C:\Users\SOHAM\Junior\src\junior\services\official_sources.py", line 834, in search_sources
+    logger.info(f"\U0001f4be Serving cached combined results for: {query} (count: {len(cached)})")
+Message: '\U0001f4be Serving cached combined results for: rape (count: 20)'
+Arguments: ()
+================================================================================
+JUNIOR SEARCH SYSTEM - COMPREHENSIVE DIAGNOSTIC
+================================================================================
+
+[1] PYTHON ENVIRONMENT
+--------------------------------------------------------------------------------
+Python Version: 3.14.0 (tags/v3.14.0:ebf955d, Oct  7 2025, 10:15:03) [MSC v.1944 64 bit (AMD64)]
+Python Executable: C:\Users\SOHAM\Junior\.venv\Scripts\python.exe
+Working Directory: C:\Users\SOHAM\Junior
+
+[2] REQUIRED PACKAGES
+--------------------------------------------------------------------------------
+  [OK] ddgs: 9.10.0
+  [MISSING] duckduckgo_search: NOT INSTALLED
+  [OK] diskcache: 5.6.3
+  [OK] langchain_groq: 1.1.1
+  [OK] langchain_core: 1.2.5
+  [OK] fastapi: 0.127.0
+  [OK] httpx: 0.28.1
+  [OK] uvicorn: 0.40.0
+
+[3] SEARCH LIBRARY CHECK
+--------------------------------------------------------------------------------
+  [OK] ddgs library imported successfully
+
+[4] OFFICIAL_SOURCES MODULE
+--------------------------------------------------------------------------------
+  [OK] Module imported successfully
+  - HAS_DDGS: True
+  - SEARCH_CACHE_VERSION: 4
+  - CATALOG entries: 38
+  - TRUSTED_DOMAINS: 24 domains
+  - Cache type: <class 'diskcache.core.Cache'>
+
+[5] CORE SETTINGS
+--------------------------------------------------------------------------------
+  [OK] Settings imported
+  - GROQ API Key: SET
+  - Environment: unknown
+
+[6] DIRECT SEARCH TEST
+--------------------------------------------------------------------------------
+  [OK] Search executed successfully
+  - Total results: 20
+  - Result types:
+    * Act: 14
+    * Official: 4
+    * Precedent: 2
+
+  First 5 results:
+    1. [Act] PDF THE PROTECTION OF CHILDREN FROM SEXUAL OFFENCES ACT, 201
+       URL: https://www.indiacode.nic.in/bitstream/123456789/2079/1/AA2012-32.pdf
+       Authority: official
+    2. [Act] Protection of Children from Sexual Offences Act (POCSO), 201
+       URL: https://blog.ipleaders.in/pocso-act-everything-you-need-to-know/
+       Authority: study
+    3. [Act] Protection of Children from Sexual Offences Act, 2012 - Indi
+       URL: https://www.indiacode.nic.in/handle/123456789/2079
+       Authority: official
+    4. [Act] Indian Penal Code,1860 | IPC Sections | lawrato.com
+       URL: https://lawrato.com/indian-kanoon/ipc
+       Authority: official
+    5. [Act] Section 375 Of IPC: An Overview - Legal Service India
+       URL: https://www.legalserviceindia.com/legal/article-5395-section-375-of-ipc-an-overview.html
+       Authority: study
+
+[7] API ENDPOINT CHECK
+--------------------------------------------------------------------------------
+  [OK] API endpoint imported
+  - Function: <function search_official_sources at 0x000001D685782B90>
+
+[8] API SCHEMAS
+--------------------------------------------------------------------------------
+  [OK] All schemas imported successfully
+
+[9] CACHE STATUS
+--------------------------------------------------------------------------------
+  [OK] Cache directory exists: .cache/search_results
+  - Cached queries: 3
+  - Sample keys:
+    * rape::None::400
+    * rape::None::50
+    * v4::combined::rape::None::None::200
+
+[10] FILE SYSTEM CHECK
+--------------------------------------------------------------------------------
+  [OK] src/junior/services/official_sources.py (36,850 bytes)
+  [OK] src/junior/api/endpoints/research.py (15,262 bytes)
+  [OK] src/junior/api/schemas.py (9,430 bytes)
+  [OK] frontend/src/components/ResearchPanel.tsx (21,577 bytes)
+
+[11] LIVE SEARCH TEST
+--------------------------------------------------------------------------------
+2025-12-26 06:26:18,191 | INFO     | junior.services.official_sources:search_live:157 | Serving cached results for: rape
+  [OK] Live search executed
+  - Results from web: 18
+  - Sample results:
+    1. THE PROTECTION OF CHILDREN FROM SEXUAL OFFENCES ACT, 2012
+    2. De-criminalising romantic adolescent relationships under the
+    3. Protection of Children from Sexual Offences Act (POCSO), 201
+
+================================================================================
+DIAGNOSTIC SUMMARY
+================================================================================
+
+[OK] No critical issues detected
+
+================================================================================

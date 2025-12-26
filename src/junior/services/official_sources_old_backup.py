@@ -821,11 +821,11 @@ async def search_sources(
 ) -> list[OfficialSource]:
     """Search the curated sources catalog AND live web."""
     
-    logger.info(f"SEARCH STARTED: query='{query}', category={category}, authority={authority}, limit={limit}")
+    logger.info(f"🔍 SEARCH STARTED: query='{query}', category={category}, authority={authority}, limit={limit}")
     
     # Check Cache (Persistent)
     cache_key = f"v{SEARCH_CACHE_VERSION}::combined::{query}::{category}::{authority}::{limit}"
-    logger.info(f"Cache key: {cache_key}")
+    logger.info(f"🔑 Cache key: {cache_key}")
     
     if cache_key in SEARCH_CACHE:
         cached = SEARCH_CACHE[cache_key]
@@ -853,7 +853,7 @@ async def search_sources(
         if not query or _matches_query(item, query):
             catalog_results.append(item)
 
-    logger.info(f"Catalog search for '{query}': found {len(catalog_results)} items")
+    logger.info(f"📚 Catalog search for '{query}': found {len(catalog_results)} items")
 
     # 2. If query is present, perform live search (minimum 2 characters)
     # Increase live search limit to get more comprehensive results
@@ -872,7 +872,7 @@ async def search_sources(
         except Exception as e:
             logger.error(f"Error in live search integration: {e}")
 
-    logger.info(f"Live search for '{query}': found {len(live_results)} items")
+    logger.info(f"🌐 Live search for '{query}': found {len(live_results)} items")
 
     # 3. Combine results (Live first if query exists, else Catalog)
     combined = live_results + catalog_results
@@ -887,7 +887,7 @@ async def search_sources(
 
     final_results = unique_results[:limit]
     
-    logger.info(f"Final results for '{query}': {len(final_results)} items (after dedup from {len(combined)} combined)")
+    logger.info(f"✅ Final results for '{query}': {len(final_results)} items (after dedup from {len(combined)} combined)")
     
     # Cache the results (Expire after 24 hours)
     SEARCH_CACHE.set(cache_key, final_results, expire=86400)

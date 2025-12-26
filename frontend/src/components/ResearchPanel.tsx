@@ -48,6 +48,7 @@ export function ResearchPanel(props: {
 
   // Pagination State
   const [displayLimit, setDisplayLimit] = useState(50);
+  const [hasMore, setHasMore] = useState(false);
 
   // Load saved data from localStorage
   useEffect(() => {
@@ -112,6 +113,7 @@ export function ResearchPanel(props: {
           
           // Reset display limit and check if more results available
           setDisplayLimit(50);
+          setHasMore(results.length > 50);
           
           // Add to search history if query is meaningful
           if (query.trim() && query.length > 2) {
@@ -485,6 +487,7 @@ export function ResearchPanel(props: {
                   onClick={() => {
                     const newLimit = displayLimit + 50;
                     setDisplayLimit(newLimit);
+                    setHasMore(items.length > newLimit);
                   }}
                   className="px-6 py-2.5 rounded-lg bg-legal-gold/10 border border-legal-gold/30 text-legal-gold hover:bg-legal-gold/20 hover:border-legal-gold/50 transition-all duration-200 text-sm font-medium shadow-lg shadow-legal-gold/5 hover:shadow-legal-gold/10"
                 >
