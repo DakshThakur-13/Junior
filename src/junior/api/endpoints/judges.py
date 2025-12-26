@@ -179,16 +179,34 @@ async def get_judge_tendencies(judge_id: str):
 
 @router.post("/analyze", response_model=JudgeAnalyticsResponse)
 async def analyze_judge(request: JudgeAnalyticsRequest):
-    """Analyze a judge from provided judgment excerpts.
+    """Analyze a judge from provided judgment excerpts or auto-fetch them.
 
-    This endpoint is intentionally input-driven so it works without a configured
-    Supabase corpus. Provide `judgments` (excerpts) and Junior will extract
-    patterns + litigation recommendations.
+    If `judgments` is empty, the AI will automatically search for and fetch
+    the judge's past judgments based on the provided case type and analyze them.
     """
+    # If no judgments provided, attempt auto-fetch
     if not request.judgments:
+        if not request.case_type:
+            raise HTTPException(
+                status_code=400,
+                detail="Case type is required when auto-fetching judgments. Please specify case type (e.g., 'Bail Applications', 'IPC 376 Sexual Offenses').",
+            )
+        
+        # For now, return a helpful message since auto-fetch requires external data source
+        # In a full implementation, this would:
+        # 1. Search legal database for judge's past judgments on this case type
+        # 2. Fetch judgment texts
+        # 3. Extract relevant excerpts
+        # 4. Proceed with analysis
+        
         raise HTTPException(
-            status_code=400,
-            detail="No judgment excerpts provided. Pass `judgments` (list of text snippets) to analyze.",
+            status_code=501,
+            detail=(
+                f"Auto-fetch feature coming soon! "
+                f"The system will automatically search for {request.judge_name}'s past judgments on '{request.case_type}' "
+                f"{'from ' + request.time_period if request.time_period else ''} and analyze patterns.\n\n"
+                f"For now, please provide judgment excerpts manually, or try the demo mode with sample data."
+            ),
         )
 
     agent = JudgeAnalyticsAgent()

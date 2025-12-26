@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Globe, FileText, AlertCircle, Share2, Paperclip, Image, Video, Mic, ExternalLink, Brain, Scale, Calendar, User, Hash, Search, Copy, GitCompare } from 'lucide-react';
+import { X, FileText, AlertCircle, Share2, Paperclip, Image, Video, Mic, ExternalLink, Brain, Scale, Calendar, User, Hash, Search, Copy, GitCompare } from 'lucide-react';
 import type { NodeData, Connection } from '../../types';
 
 type SourcePreview = {

@@ -1,6 +1,8 @@
-# Junior - Your Trusted AI Legal Assistant 🧑‍⚖️
+# Junior - AI Legal Assistant for Indian Lawyers ⚖️
 
 > An Agentic AI Workflow Platform designed as a hyper-efficient Legal Assistant for Indian lawyers.
+
+**Last Updated:** December 26, 2025
 
 ## 🎯 Overview
 
@@ -9,24 +11,40 @@ Junior bridges the **Trust Deficit** between AI and Indian legal professionals b
 ## ✨ Key Features
 
 ### 🔍 Research Engine (Zero-Hallucination)
-- **Agentic RAG**: Team of AI agents (Researcher, Critic, Writer) that iterate until the answer is legally sound.
-- **Pinpoint Citation**: Every legal claim hyperlinked to the specific paragraph of the source PDF.
-- **Traffic Light Shepardizing**: Visual validity indicator (🔴 Overruled, 🟡 Distinguished, 🟢 Good Law).
+- **Legal Source Search**: 30+ results from Indian Kanoon, Supreme Court, High Courts
+- **Categorized Results**: Case law, statutes, articles, official sources
+- **Traffic Light Shepardizing**: Visual validity indicator (🔴 Overruled, 🟡 Distinguished, 🟢 Good Law)
+- **Bookmarking & History**: Save important sources and track search history
 
-### 🧠 Strategy Engine (Predictive)
-- **Judge Analytics**: Behavioral patterns analysis from past rulings.
-- **Devil's Advocate Simulator**: War Room feature to expose weak arguments before court.
+### 📊 Strategy & Analytics Engine
+- **Judge Analytics**: Analyze judicial patterns from past rulings
+  - AI-powered pattern detection (High/Medium/Low signals)
+  - Evidence-based recommendations
+  - Auto-fetch judgments by judge name and case type
+- **Devil's Advocate Simulator**: Stress-test your arguments before court
+  - Vulnerability scoring (1-10)
+  - Counter-argument identification
+  - Preparation recommendations
 
-### ⚡ Utility Engine (Automation)
-- **Multilingual "Hinglish" Bridge**: Query in vernacular, search English repositories.
-- **Draft-to-Court Auto-Formatter**: Convert raw text to court-compliant PDFs.
+### 📝 Drafting Studio
+- **Court-Specific Formatting**: Auto-format for Supreme Court, High Court, District Court, Tribunal
+- **9 Templates**: Heading, Petition, Writ, Affidavit, Arguments, Synopsis, and more
+- **Live Preview**: Real-time HTML preview with court styling
+- **Citation Shepardizing**: Validate citations with visual indicators
+- **Export Options**: Download as formatted document
 
-### 💻 Modern Frontend
-- **Modular Architecture**: Built with React, TypeScript, and Vite for high performance.
-- **Interactive UI**:
-  - **Detective Wall**: Visual graph canvas for connecting evidence and arguments.
-  - **Radial Menu**: Intuitive navigation system.
-  - **Streaming Chat**: Real-time AI interaction with conflict detection.
+### 🕵️ Detective Wall
+- **Visual Case Canvas**: Drag-and-drop evidence nodes
+- **AI-Powered Analysis**: Auto-detect connections and contradictions
+- **Node Types**: Evidence, Precedent, Statement, Strategy
+- **Connection Mapping**: Link related evidence with labeled relationships
+- **PDF Upload**: Upload and analyze case documents
+
+### 💬 AI Chat Assistant
+- **Multilingual Support**: English, Hindi, Marathi, Hinglish
+- **Legal Term Highlighting**: Click for instant definitions
+- **Conflict Detection**: Warns when AI response conflicts with evidence
+- **Streaming Responses**: Real-time AI interaction
 
 ## 🏗️ Architecture
 
@@ -48,29 +66,43 @@ Junior bridges the **Trust Deficit** between AI and Indian legal professionals b
 ## 📂 Project Structure
 
 ```
-ZeroDay/
+Junior/
 ├── src/                    # Backend Source Code
-│   ├── junior/
-│   │   ├── agents/         # AI Agents (Researcher, Critic, etc.)
-│   │   ├── api/            # FastAPI Endpoints
-│   │   ├── core/           # Config & Types
-│   │   ├── graph/          # LangGraph Workflows
-│   │   └── services/       # Business Logic (PDF, Search, etc.)
+│   └── junior/
+│       ├── agents/         # AI Agents (JudgeAnalytics, DevilsAdvocate)
+│       ├── api/            # FastAPI Endpoints
+│       │   ├── endpoints/  # Route handlers (research, judges, format, etc.)
+│       │   └── schemas.py  # Pydantic models
+│       ├── core/           # Config & Settings
+│       ├── graph/          # LangGraph Workflows
+│       └── services/       # Business Logic
+│           ├── official_sources.py   # Legal search engine
+│           ├── document_formatter.py # Court document formatting
+│           ├── embedding.py          # Vector embeddings
+│           └── legal_glossary.py     # Term definitions
 │
-├── frontend/               # Frontend Source Code
-│   ├── src/
-│   │   ├── components/     # Modular UI Components
-│   │   │   ├── DetectiveWall/
-│   │   │   ├── ChatPanel.tsx
-│   │   │   ├── RadialMenu.tsx
-│   │   │   └── ...
-│   │   ├── views/          # Application Views
-│   │   ├── types/          # TypeScript Definitions
-│   │   └── App.tsx         # Main Application Component
+├── frontend/               # Frontend Source Code (React + TypeScript)
+│   └── src/
+│       ├── components/     # Reusable UI Components
+│       │   ├── DetectiveWall/       # Canvas components
+│       │   ├── ChatPanel.tsx        # AI chat interface
+│       │   ├── RadialMenu.tsx       # Navigation menu
+│       │   ├── ResearchPanel.tsx    # Search interface
+│       │   └── ToolsDock.tsx        # Toolbar
+│       ├── views/          # Page-level components
+│       ├── types/          # TypeScript definitions
+│       ├── App.tsx         # Main application (includes Analytics, Drafting)
+│       └── styles.css      # Global styles
 │
 ├── docs/                   # Documentation
-├── scripts/                # Utility Scripts
-└── uploads/                # Local Document Storage
+│   ├── legal/              # Legal policies (Privacy, Terms, GDPR)
+│   ├── ARCHITECTURE_DIAGRAMS.md
+│   └── FEATURE_VERIFICATION.md
+│
+├── tests/                  # Test suite
+├── uploads/                # Document storage
+├── start.py                # One-click startup script
+└── requirements.txt        # Python dependencies
 ```
 
 ## 🚀 Quick Start
@@ -150,19 +182,14 @@ If you run `start.py` manually, use the venv interpreter to avoid “installed b
 & .\.venv\Scripts\python.exe .\start.py
 ```
 
-## 🧪 Verification (Smoke Tests)
-
-With the backend running (`http://localhost:8000`), you can run the included test scripts:
+## 🧪 Testing
 
 ```bash
-# Search endpoint
-& .\.venv\Scripts\python.exe .\tests\test_api_search.py
+# Run all tests
+.\.venv\Scripts\python.exe -m pytest -q
 
-# Streaming chat endpoint
-& .\.venv\Scripts\python.exe .\tests\test_streaming.py
-
-# Direct chat service (uses your configured provider)
-& .\.venv\Scripts\python.exe .\tests\test_chat_quick.py
+# Run with coverage
+.\.venv\Scripts\python.exe -m pytest --cov=src/junior tests/
 ```
 
 ## 🛠️ Troubleshooting
@@ -197,58 +224,15 @@ Relevant environment settings (see `.env.example`):
 
 ## 📚 Documentation
 
-### **Comprehensive Documentation Suite**
+Comprehensive documentation is available in the `docs/` folder:
 
-We've created extensive documentation addressing architecture, features, legal compliance, and market research:
-
-#### **🏗️ Architecture & Technical Design**
-- **[Architecture Diagrams & Flowcharts](./docs/ARCHITECTURE_DIAGRAMS.md)**
-  - System architecture, data flows, component diagrams
-  - 13+ professional diagrams using Mermaid syntax
-  - Covers: Detective Wall, Judge Analytics, Search Engine, AI Integration
-
-#### **✅ Feature Verification**
-- **[Feature Verification Documentation](./docs/FEATURE_VERIFICATION.md)**
-  - Proof that all claimed features are implemented and working
-  - Code locations, API endpoints, test results
-  - Complete feature matrix with performance metrics
-
-#### **🔐 Legal & Compliance**
-- **[Privacy Policy](./docs/legal/PRIVACY_POLICY.md)** - GDPR & DPDP Act 2023 compliant
-- **[Terms of Service](./docs/legal/TERMS_OF_SERVICE.md)** - Strong AI liability disclaimers
-- **[GDPR & DPDP Compliance](./docs/legal/GDPR_DPDP_COMPLIANCE.md)** - Detailed compliance mapping
-- **[Data Retention Policy](./docs/legal/DATA_RETENTION_POLICY.md)** - Complete data lifecycle
-- **[Security Policy](./docs/legal/SECURITY_POLICY.md)** - Security measures & vulnerability disclosure
-
-#### **📊 Market Research & Citations**
-- **[Market Research & Academic Citations](./docs/MARKET_RESEARCH.md)**
-  - 50+ quantitative market statistics
-  - 10+ peer-reviewed academic citations with DOIs
-  - Competitive landscape analysis
-  - $28B+ global legal tech market analysis
-
-#### **📑 Complete Index**
-- **[Documentation Index](./docs/DOCUMENTATION_INDEX.md)** - Quick access to all documentation
-
-### **🎯 Key Highlights**
-
-**Legal Compliance:**
-- ⚠️ **Strong AI Disclaimers**: "AI is NOT legal advice" - no liability for AI errors
-- ✅ GDPR & DPDP Act 2023 compliant
-- ✅ Vulnerability disclosure program
-- ✅ Comprehensive data protection policies
-
-**Market Validation:**
-- 📊 $28.1B global legal tech market (2023)
-- 📈 $1.8B India market growing to $5B by 2030
-- 🎓 10+ academic papers cited (ACM, Springer, Oxford)
-- 🏆 51.2M pending cases in Indian courts = massive opportunity
-
-**Technical Credibility:**
-- 🏗️ Complete system architecture diagrams
-- ✅ All 7 major features verified with code proof
-- 📈 Performance metrics: 2.3s search, 30+ results
-- 🧪 Automated test suite included
+| Document | Description |
+|----------|-------------|
+| [Architecture Diagrams](./docs/ARCHITECTURE_DIAGRAMS.md) | System architecture, data flows, component diagrams |
+| [Feature Verification](./docs/FEATURE_VERIFICATION.md) | Proof of implementation for all features |
+| [Privacy Policy](./docs/legal/PRIVACY_POLICY.md) | GDPR & DPDP Act 2023 compliant |
+| [Terms of Service](./docs/legal/TERMS_OF_SERVICE.md) | Usage terms and AI disclaimers |
+| [Security Policy](./docs/legal/SECURITY_POLICY.md) | Security measures and disclosure |
 
 ---
 

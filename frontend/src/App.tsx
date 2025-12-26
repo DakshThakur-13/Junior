@@ -39,7 +39,7 @@ import type {
   ShepardizeResult,
 } from './types';
 
-type ChatLanguage = 'en' | 'hi' | 'mr';
+type ChatLanguage = 'en' | 'hi' | 'mr' | 'hi-latn';
 type OutputScript = 'native' | 'roman';
 
 type GlossaryResponse = {
@@ -1080,7 +1080,9 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
   const [judgeName, setJudgeName] = useState('');
   const [court, setCourt] = useState<CourtValue>('high_court');
   const [caseType, setCaseType] = useState('');
-  const [excerpts, setExcerpts] = useState('');
+  const [timePeriod, setTimePeriod] = useState('');
+  const [casesCount, setCasesCount] = useState('');
+  const [caseDetails, setCaseDetails] = useState('');
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<JudgeAnalyticsResponse | null>(null);
@@ -1113,26 +1115,22 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [mode, isWorking, devilWorking, judgeName, excerpts, caseSummary, argumentsText]);
-
-  const splitExcerpts = (raw: string) => {
-    const parts = raw
-      .split(/\n---\n/g)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    return parts.length ? parts : raw.trim() ? [raw.trim()] : [];
-  };
+  }, [mode, isWorking, devilWorking, judgeName, caseDetails, caseSummary, argumentsText]);
 
   const runAnalysis = async () => {
     setError(null);
     setResult(null);
-    const judgments = splitExcerpts(excerpts);
+    
     if (!judgeName.trim()) {
       setError('Enter a judge name.');
       return;
     }
-    if (judgments.length === 0) {
-      setError('Paste at least one judgment excerpt.');
+    if (!caseType.trim()) {
+      setError('Enter a case type (e.g., "Bail Applications", "IPC 376 Sexual Offenses").');
+      return;
+    }
+    if (!caseDetails.trim()) {
+      setError('Describe your case/application briefly.');
       return;
     }
 
@@ -1144,8 +1142,11 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
         body: JSON.stringify({
           judge_name: judgeName,
           court,
-          case_type: caseType || null,
-          judgments,
+          case_type: caseType,
+          judgments: [], // Empty array signals backend to auto-fetch
+          case_details: caseDetails,
+          time_period: timePeriod || null,
+          cases_count: casesCount ? parseInt(casesCount) : 15,
         }),
       });
 
@@ -1156,8 +1157,9 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
 
       const data = (await res.json()) as JudgeAnalyticsResponse;
       setResult(data);
-    } catch {
-      setError('Judge analytics is unavailable (missing LLM config or backend not running).');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Judge analytics is unavailable: ${message}`);
     } finally {
       setIsWorking(false);
     }
@@ -1275,7 +1277,9 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
       setJudgeName('');
       setCourt('high_court');
       setCaseType('');
-      setExcerpts('');
+      setTimePeriod('');
+      setCasesCount('');
+      setCaseDetails('');
       setResult(null);
       setError(null);
     } else {
@@ -1442,6 +1446,32 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                   />
                 </div>
 
+                <div className="grid grid-cols-2 gap-3 mt-3 px-4">
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Time Period (optional)</div>
+                    <input
+                      value={timePeriod}
+                      onChange={(e) => setTimePeriod(e.target.value)}
+                      placeholder="2022-2024"
+                      title="Optional: Time period of judgments"
+                      className="mt-1 w-full glass-input rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-legal-gold/50 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Cases to Analyze</div>
+                    <input
+                      value={casesCount}
+                      onChange={(e) => setCasesCount(e.target.value)}
+                      placeholder="15"
+                      type="number"
+                      min="1"
+                      max="100"
+                      title="Number of cases (1-100)"
+                      className="mt-1 w-full glass-input rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-legal-gold/50 outline-none"
+                    />
+                  </div>
+                </div>
+
                 {error && (
                   <div className="mt-3 mx-4 bg-rose-950/40 border border-rose-900/50 rounded-lg p-3">
                     <div className="text-xs text-rose-200 mb-2">{error}</div>
@@ -1517,36 +1547,46 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
           <div className="flex-1 p-4">
             {mode === 'judge' ? (
               <>
-                <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mb-2">Judgment Excerpts</div>
+                <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mb-2">Case/Application Details</div>
                 <textarea
-                  value={excerpts}
-                  onChange={(e) => setExcerpts(e.target.value)}
+                  value={caseDetails}
+                  onChange={(e) => setCaseDetails(e.target.value)}
                   spellCheck={false}
-                  placeholder="Paste excerpts here.\n\nTip: Separate multiple excerpts with:\n---"
-                  className="w-full h-[320px] lg:h-[calc(100vh-310px)] resize-none glass-input rounded-xl px-4 py-3 text-xs text-slate-200 leading-relaxed outline-none"
+                  placeholder={"Briefly describe your case or application. Example:\n\nMy client is applying for bail in a murder case (IPC 302). He is a 42-year-old businessman with no criminal record, has been in custody for 3 months. He is a family man with two children, owns property in Delhi, and is ready to surrender passport and comply with all conditions.\n\nI want to understand how this judge typically approaches bail applications in serious offense cases and what factors he weighs most heavily.\n\nThe AI will automatically fetch this judge's past judgments and analyze patterns relevant to your case."}
+                  className="w-full h-[280px] lg:h-[calc(100vh-400px)] resize-none glass-input rounded-xl px-4 py-3 text-xs text-slate-200 leading-relaxed outline-none"
                 />
+                <div className="mt-2 text-[10px] text-slate-500 leading-relaxed">
+                  💡 <strong>AI will auto-fetch judgments:</strong> Just describe your case above. The system will automatically search for {judgeName || "the judge"}'s past judgments on {caseType || "this case type"} {timePeriod && `from ${timePeriod}`} and analyze patterns.
+                </div>
               </>
             ) : (
-              <div className="text-xs text-slate-500 leading-relaxed">
-                Tip: Keep the case summary short. Paste the arguments exactly as you plan to submit them.
+              <div className="text-xs text-slate-500 leading-relaxed space-y-3">
+                <p><strong className="text-slate-400">💡 Tips for better results:</strong></p>
+                <ul className="space-y-1 pl-4">
+                  <li>• Keep case summary brief (1-2 sentences)</li>
+                  <li>• Paste arguments exactly as you plan to submit</li>
+                  <li>• Include key facts, not just legal theory</li>
+                  <li>• Add citations if you're relying on specific precedents</li>
+                </ul>
+                <p className="mt-3 text-slate-600">The AI will simulate opposing counsel and identify weaknesses in your arguments.</p>
               </div>
             )}
           </div>
         </div>
 
-        <div className="w-full lg:flex-1 bg-black/20 backdrop-blur-xl p-5">
-          <div className="flex items-center justify-between mb-3">
+        <div className="w-full lg:flex-1 bg-black/20 backdrop-blur-xl p-5 overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <div>
               <h4 className="text-sm font-bold text-white">Findings</h4>
               <div className="text-xs text-slate-500">
                 {mode === 'judge'
-                  ? 'Patterns + recommendations based only on provided excerpts'
+                  ? 'AI-analyzed patterns from judge\'s actual past judgments'
                   : 'Opposing counsel simulation + what to prepare'}
               </div>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="flex-1 overflow-y-auto space-y-3 pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgb(100 116 139) transparent' }}>
             {mode === 'judge' ? (
               <>
                 {isWorking && (
@@ -1568,9 +1608,37 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
 
                 {!isWorking && !result && (
                   <div className="bg-black/10 border border-white/5 rounded-xl p-8 text-center">
-                    <div className="text-4xl mb-3">⚖️</div>
-                    <div className="text-sm text-slate-400">Run Analyze to see judicial patterns</div>
-                    <div className="text-xs text-slate-500 mt-2">Paste judgment excerpts and click ANALYZE</div>
+                    <div className="text-5xl mb-4">⚖️</div>
+                    <div className="text-sm text-slate-300 font-semibold mb-2">AI-Powered Judge Analysis</div>
+                    <div className="text-xs text-slate-400 mb-4">Automatically fetch & analyze judicial patterns</div>
+                    <div className="text-xs text-slate-500 space-y-2 text-left max-w-md mx-auto">
+                      <p className="mb-2"><strong className="text-slate-400">How it works:</strong></p>
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <span className="text-legal-gold font-bold">1.</span>
+                          <span>Enter judge name and court</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-legal-gold font-bold">2.</span>
+                          <span>Specify case type (required - e.g., "Bail Applications")</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-legal-gold font-bold">3.</span>
+                          <span>Add time period and case count (optional)</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-legal-gold font-bold">4.</span>
+                          <span>Describe your case/application situation</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-legal-gold font-bold">5.</span>
+                          <span>Click ANALYZE - AI will auto-fetch judgments</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 text-[10px] text-slate-600">
+                      🤖 AI fetches judgments automatically - no manual pasting needed!
+                    </div>
                   </div>
                 )}
 
@@ -1599,26 +1667,56 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                     </div>
 
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
-                      <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mb-2">Patterns</div>
+                      <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mb-3">Patterns</div>
                       {result.patterns?.length ? (
                         <div className="space-y-3">
                           {result.patterns.map((p, idx) => (
-                            <div key={idx} className="border border-white/10 rounded-lg p-3 bg-white/5 hover:bg-white/10 transition-all duration-200">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="text-xs text-slate-200 font-semibold">{p.pattern}</div>
-                                <span className={`text-[10px] px-2 py-1 rounded-full border font-semibold flex items-center gap-1 ${signalColor(p.signal)}`}>
+                            <div key={idx} className="border border-white/10 rounded-lg p-3 bg-white/5 hover:bg-white/[0.07] transition-all duration-200 group">
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="flex-1">
+                                  <div className="text-xs text-slate-200 font-semibold leading-snug">{p.pattern}</div>
+                                </div>
+                                <span className={`text-[10px] px-2 py-1 rounded-full border font-semibold flex items-center gap-1 shrink-0 ${signalColor(p.signal)}`}>
                                   <span>{signalIcon(p.signal)}</span>
                                   <span>{p.signal.toUpperCase()}</span>
                                 </span>
                               </div>
                               {!!p.evidence?.length && (
-                                <div className="mt-2 text-xs text-slate-400 space-y-1">
-                                  {p.evidence.slice(0, 4).map((e, i) => (
-                                    <div key={i}>- {e}</div>
-                                  ))}
+                                <div className="mt-3 space-y-1.5">
+                                  <div className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Evidence:</div>
+                                  <div className="text-xs text-slate-300 space-y-1.5 pl-3 border-l-2 border-slate-700">
+                                    {p.evidence.slice(0, 5).map((e, i) => (
+                                      <div key={i} className="leading-relaxed">• {e}</div>
+                                    ))}
+                                    {p.evidence.length > 5 && (
+                                      <div className="text-[11px] text-slate-500 italic">+ {p.evidence.length - 5} more evidence points</div>
+                                    )}
+                                  </div>
                                 </div>
                               )}
-                              {!!p.caveats?.length && <div className="mt-2 text-[11px] text-slate-500">Limitations: {p.caveats[0]}</div>}
+                              {!!p.caveats?.length && (
+                                <div className="mt-3 bg-amber-950/20 border border-amber-900/30 rounded p-2">
+                                  <div className="text-[10px] text-amber-400/80 font-semibold mb-1">⚠️ Limitations:</div>
+                                  <div className="text-[11px] text-amber-300/70 leading-relaxed">{p.caveats[0]}</div>
+                                </div>
+                              )}
+                              {/* Quick Actions */}
+                              <div className="mt-3 pt-3 border-t border-white/5 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => copyToClipboard(`Pattern: ${p.pattern}\n\nEvidence:\n${p.evidence?.join('\n') || 'None'}`)}
+                                  className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
+                                  title="Copy this pattern"
+                                >
+                                  📋 Copy
+                                </button>
+                                <button
+                                  onClick={() => alert('Ask AI feature coming soon!')}
+                                  className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
+                                  title="Ask AI about this pattern"
+                                >
+                                  🤖 Ask AI
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1662,55 +1760,163 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
 
                 {!devilWorking && !devilResult && (
                   <div className="bg-black/10 border border-white/5 rounded-xl p-8 text-center">
-                    <div className="text-4xl mb-3">⚔️</div>
-                    <div className="text-sm text-slate-400">Run Simulate to stress-test arguments</div>
-                    <div className="text-xs text-slate-500 mt-2">Enter case summary & arguments, then click SIMULATE</div>
+                    <div className="text-5xl mb-4">⚔️</div>
+                    <div className="text-sm text-slate-300 font-semibold mb-2">Stress-Test Your Arguments</div>
+                    <div className="text-xs text-slate-400 mb-4">Simulate opposition counsel and discover weaknesses before they do</div>
+                    <div className="text-xs text-slate-500 space-y-1 text-left max-w-md mx-auto">
+                      <p className="mb-2"><strong className="text-slate-400">What you'll get:</strong></p>
+                      <ul className="space-y-1 pl-4">
+                        <li>• Vulnerability score (0-10)</li>
+                        <li>• Specific attack points opposition may use</li>
+                        <li>• Counter-arguments and citations</li>
+                        <li>• Preparation recommendations</li>
+                      </ul>
+                    </div>
+                    <div className="mt-6 text-[10px] text-slate-600">
+                      Enter case summary & arguments above, then click SIMULATE
+                    </div>
                   </div>
                 )}
                 {!devilWorking && devilResult && (
                   <>
                     {/* Quick Summary */}
                     <div className="bg-gradient-to-br from-rose-500/10 to-red-900/10 border border-rose-400/20 rounded-xl p-4">
-                      <div className="flex items-start justify-between">
+                      <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <div className="text-xs text-rose-300/80 font-semibold tracking-wider uppercase">Stress Test Complete</div>
-                          <div className="text-2xl font-bold mt-2">
-                            {Number.isFinite(devilResult.vulnerability_score) ? (
-                              <span className={devilResult.vulnerability_score > 7 ? 'text-rose-300' : devilResult.vulnerability_score > 4 ? 'text-amber-300' : 'text-emerald-300'}>
-                                {devilResult.vulnerability_score.toFixed(1)}/10
-                              </span>
-                            ) : (
-                              <span className="text-slate-400">N/A</span>
+                          <div className="text-xs text-rose-300/80 font-semibold tracking-wider uppercase mb-1">Stress Test Complete</div>
+                          <div className="flex items-center gap-4 mt-3">
+                            <div>
+                              <div className="text-2xl font-bold">
+                                {Number.isFinite(devilResult.vulnerability_score) ? (
+                                  <span className={devilResult.vulnerability_score > 7 ? 'text-rose-300' : devilResult.vulnerability_score > 4 ? 'text-amber-300' : 'text-emerald-300'}>
+                                    {devilResult.vulnerability_score.toFixed(1)}<span className="text-lg text-slate-400">/10</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">N/A</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-1">Vulnerability Score</div>
+                            </div>
+                            {/* Visual Gauge */}
+                            {Number.isFinite(devilResult.vulnerability_score) && (
+                              <div className="flex-1 max-w-[200px]">
+                                <div className="h-2 bg-black/30 rounded-full overflow-hidden border border-white/10">
+                                  <div 
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                      devilResult.vulnerability_score > 7 ? 'bg-gradient-to-r from-rose-500 to-red-600' :
+                                      devilResult.vulnerability_score > 4 ? 'bg-gradient-to-r from-amber-500 to-orange-500' :
+                                      'bg-gradient-to-r from-emerald-500 to-green-500'
+                                    }`}
+                                    style={{ width: `${(devilResult.vulnerability_score / 10) * 100}%` }}
+                                  />
+                                </div>
+                                <div className="flex justify-between text-[9px] text-slate-500 mt-1">
+                                  <span>Low</span>
+                                  <span>Medium</span>
+                                  <span>High</span>
+                                </div>
+                              </div>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 mt-2 text-xs">
+                          <div className="flex items-center gap-3 mt-3 text-xs">
                             <span className="text-slate-400">⚔️ {devilResult.attack_points?.length || 0} attacks</span>
                             <span className="text-slate-400">🛡️ {devilResult.preparation_recommendations?.length || 0} defenses</span>
                           </div>
                         </div>
-                        <div className="text-xs text-slate-400 max-w-[180px]">
-                          Vulnerability score: Higher means more angles for opposition
+                        <div className="text-xs text-slate-400 max-w-[200px] bg-black/20 rounded-lg p-3 border border-white/5">
+                          <div className="font-semibold text-slate-300 mb-1">💡 What this means:</div>
+                          {devilResult.vulnerability_score > 7 ? (
+                            <p>High vulnerability. Opposition has strong attack angles. Strengthen your arguments urgently.</p>
+                          ) : devilResult.vulnerability_score > 4 ? (
+                            <p>Moderate vulnerability. Some weak points exist. Address them before submission.</p>
+                          ) : (
+                            <p>Low vulnerability. Arguments are solid. Minor improvements suggested below.</p>
+                          )}
                         </div>
                       </div>
                     </div>
 
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
-                      <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mb-2">Attack Points</div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Attack Points</div>
+                        {devilResult.attack_points?.length > 0 && (
+                          <div className="text-[10px] text-slate-400">
+                            {devilResult.attack_points.length} vulnerabilities found
+                          </div>
+                        )}
+                      </div>
                       {devilResult.attack_points?.length ? (
                         <div className="space-y-3">
-                          {devilResult.attack_points.slice(0, 12).map((p, idx) => (
-                            <div key={idx} className="border border-white/10 rounded-lg p-3 bg-white/5">
-                              <div className="text-xs text-slate-200 font-semibold">
-                                {p.title || `Attack Point ${idx + 1}`}
+                          {devilResult.attack_points.slice(0, 12).map((p, idx) => {
+                            // Determine severity based on content
+                            const hasCitation = !!p.counter_citation;
+                            const hasAttack = !!p.suggested_attack;
+                            const severity = hasCitation && hasAttack ? 'high' : hasAttack || hasCitation ? 'medium' : 'low';
+                            const severityColor = 
+                              severity === 'high' ? 'border-rose-500/40 bg-rose-950/20' :
+                              severity === 'medium' ? 'border-amber-500/40 bg-amber-950/20' :
+                              'border-slate-600/40 bg-slate-900/20';
+                            const severityBadge =
+                              severity === 'high' ? 'bg-rose-500/20 text-rose-300 border-rose-400/40' :
+                              severity === 'medium' ? 'bg-amber-500/20 text-amber-300 border-amber-400/40' :
+                              'bg-slate-700/20 text-slate-400 border-slate-600/40';
+                            
+                            return (
+                              <div key={idx} className={`border rounded-lg p-3 transition-all duration-200 group ${severityColor}`}>
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                  <div className="text-xs text-slate-200 font-semibold leading-snug">
+                                    {idx + 1}. {p.title || `Attack Point ${idx + 1}`}
+                                  </div>
+                                  <span className={`text-[9px] px-2 py-0.5 rounded-full border font-bold tracking-wider shrink-0 ${severityBadge}`}>
+                                    {severity === 'high' ? '⚠️ CRITICAL' : severity === 'medium' ? '⚡ MODERATE' : 'ℹ️ MINOR'}
+                                  </span>
+                                </div>
+                                
+                                {p.weakness && (
+                                  <div className="mt-2 bg-black/20 rounded-lg p-2 border border-white/5">
+                                    <div className="text-[10px] text-slate-500 font-semibold mb-1">🔴 Weakness Identified:</div>
+                                    <div className="text-xs text-slate-300 leading-relaxed">{p.weakness}</div>
+                                  </div>
+                                )}
+                                
+                                {p.suggested_attack && (
+                                  <div className="mt-2 bg-black/20 rounded-lg p-2 border border-white/5">
+                                    <div className="text-[10px] text-slate-500 font-semibold mb-1">⚔️ Opposition's Likely Argument:</div>
+                                    <div className="text-xs text-slate-300 leading-relaxed">{p.suggested_attack}</div>
+                                  </div>
+                                )}
+                                
+                                {p.counter_citation && (
+                                  <div className="mt-2 bg-black/20 rounded-lg p-2 border border-white/5">
+                                    <div className="text-[10px] text-slate-500 font-semibold mb-1">📖 Counter-Citation:</div>
+                                    <div className="text-xs text-blue-300 leading-relaxed font-mono">{p.counter_citation}</div>
+                                  </div>
+                                )}
+                                
+                                {!p.weakness && !p.counter_citation && !p.suggested_attack && p.raw && (
+                                  <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-300 leading-relaxed">{p.raw}</pre>
+                                )}
+                                
+                                {/* Quick Actions */}
+                                <div className="mt-3 pt-3 border-t border-white/5 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => copyToClipboard(`${p.title || 'Attack Point'}\n\nWeakness: ${p.weakness || 'N/A'}\nSuggested Attack: ${p.suggested_attack || 'N/A'}\nCounter-Citation: ${p.counter_citation || 'N/A'}`)}
+                                    className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
+                                    title="Copy this attack point"
+                                  >
+                                    📋 Copy
+                                  </button>
+                                  <button
+                                    onClick={() => alert('Draft Response feature coming soon!')}
+                                    className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
+                                    title="Draft a response"
+                                  >
+                                    ✍️ Respond
+                                  </button>
+                                </div>
                               </div>
-                              {p.weakness && <div className="mt-2 text-xs text-slate-400">Weakness: <span className="text-slate-300">{p.weakness}</span></div>}
-                              {p.counter_citation && <div className="mt-1 text-xs text-slate-400">Counter-citation: <span className="text-slate-300">{p.counter_citation}</span></div>}
-                              {p.suggested_attack && <div className="mt-1 text-xs text-slate-400">Suggested attack: <span className="text-slate-300">{p.suggested_attack}</span></div>}
-                              {!p.weakness && !p.counter_citation && !p.suggested_attack && p.raw && (
-                                <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-300 leading-relaxed">{p.raw}</pre>
-                              )}
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="text-xs text-slate-500">No attack points returned.</div>

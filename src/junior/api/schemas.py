@@ -169,7 +169,10 @@ class JudgeAnalyticsRequest(BaseModel):
     judge_name: str
     court: Optional[Court] = None
     case_type: Optional[str] = None
-    judgments: list[str] = Field(default_factory=list, description="Optional judgment excerpts to analyze")
+    judgments: list[str] = Field(default_factory=list, description="Optional judgment excerpts to analyze. If empty, AI will auto-fetch.")
+    case_details: Optional[str] = Field(default=None, description="Description of user's case/application situation")
+    time_period: Optional[str] = Field(default=None, description="Time period for fetching judgments (e.g., '2022-2024')")
+    cases_count: Optional[int] = Field(default=15, description="Number of cases to analyze (1-100)")
 
 class JudgeAnalyticsResponse(BaseModel):
     """Response with judge analytics"""

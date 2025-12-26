@@ -48,7 +48,7 @@ export function ResearchPanel(props: {
 
   // Pagination State
   const [displayLimit, setDisplayLimit] = useState(50);
-  const [hasMore, setHasMore] = useState(false);
+  const [, setHasMore] = useState(false);
 
   // Load saved data from localStorage
   useEffect(() => {
