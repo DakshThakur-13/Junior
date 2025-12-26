@@ -1,5 +1,7 @@
 # Junior Legal Research Platform - Architecture & Diagrams
 
+**Last Updated:** December 26, 2025
+
 ## 🏗️ System Architecture
 
 ```mermaid
@@ -126,14 +128,21 @@ graph LR
 
 ```mermaid
 graph TD
-    INPUT[User Input:<br/>Judge Name + Excerpts] --> PARSE[Parse Judgment Text]
-    PARSE --> GROQ[Send to Groq LLM<br/>LLaMA 3.3 70B]
+    INPUT[User Input:<br/>Judge Name + Case Type + Case Details] --> VALIDATE[Validate Input]
+    VALIDATE --> CHECK{Judgments<br/>Provided?}
+    
+    CHECK -->|Yes| GROQ[Send to Groq LLM<br/>LLaMA 3.3 70B]
+    CHECK -->|No| AUTOFETCH[Auto-Fetch Mode<br/>Search Past Judgments]
+    
+    AUTOFETCH -->|Coming Soon| SEARCH[Search Legal Database<br/>by Judge + Case Type]
+    SEARCH --> EXTRACT[Extract Judgment Excerpts]
+    EXTRACT --> GROQ
     
     GROQ --> ANALYZE{AI Analysis}
     
     ANALYZE --> PATTERNS[Identify Patterns:<br/>- Argumentative tendencies<br/>- Evidence preferences<br/>- Precedent usage]
     
-    ANALYZE --> SIGNALS[Signal Strength:<br/>- High ⚠️<br/>- Medium ⚡<br/>- Low ✓]
+    ANALYZE --> SIGNALS[Signal Strength:<br/>- High ⚠️ Critical<br/>- Medium ⚡ Notable<br/>- Low ✓ Favorable]
     
     ANALYZE --> RECOMMEND[Generate Recommendations:<br/>- Strategy tips<br/>- Argument framing<br/>- Evidence focus]
     
@@ -141,9 +150,10 @@ graph TD
     SIGNALS --> SUMMARY
     RECOMMEND --> SUMMARY
     
-    SUMMARY --> UI[Display in UI<br/>+ Export Option]
+    SUMMARY --> UI[Display in UI<br/>+ Copy/Export Option]
     
     style INPUT fill:#60a5fa,stroke:#1e40af
+    style AUTOFETCH fill:#a78bfa,stroke:#7c3aed
     style GROQ fill:#fbbf24,stroke:#d97706
     style SUMMARY fill:#34d399,stroke:#059669
     style UI fill:#a78bfa,stroke:#7c3aed
@@ -467,38 +477,43 @@ graph TD
 
 ```mermaid
 graph TD
-    APP[App.tsx<br/>Root Component] --> ROUTER[React Router]
+    APP[App.tsx<br/>Root Component] --> VIEW{Current View}
     
-    ROUTER --> HOME[Home Page]
-    ROUTER --> RESEARCH[Research Page]
-    ROUTER --> DETECTIVE[Detective Wall]
-    ROUTER --> ANALYTICS[Analytics Page]
-    ROUTER --> CHAT[Legal Chat]
+    VIEW --> LANDING[LandingPage]
+    VIEW --> SELECTION[CaseSelection]
+    VIEW --> WALL[DetectiveWall<br/>Main Workspace]
     
-    ANALYTICS --> JUDGE[Judge Analytics Component]
-    ANALYTICS --> DEVIL[Devil's Advocate Component]
+    WALL --> RADIAL[RadialMenu<br/>Navigation]
     
-    JUDGE --> FORM_J[Input Form]
-    JUDGE --> RESULTS_J[Results Display]
-    JUDGE --> EXPORT_J[Export Button]
+    RADIAL --> DASHBOARD[Dashboard Tab<br/>Detective Wall Canvas]
+    RADIAL --> STRATEGY[Strategy Tab<br/>StrategyAnalytics]
+    RADIAL --> DRAFTING[Drafting Tab<br/>DraftingStudio]
     
-    DEVIL --> FORM_D[Input Form]
-    DEVIL --> RESULTS_D[Results Display]
-    DEVIL --> EXPORT_D[Export Button]
+    STRATEGY --> JUDGE[Judge Analytics<br/>Pattern Analysis]
+    STRATEGY --> DEVIL[Devil's Advocate<br/>Argument Testing]
     
-    DETECTIVE --> CANVAS[Canvas Component]
-    CANVAS --> NODE_MGR[Node Manager]
-    CANVAS --> CONN_MGR[Connection Manager]
-    CANVAS --> AI_ASSIST[AI Assistant]
+    JUDGE --> FORM_J[Case Details Form<br/>Judge + Court + Type]
+    JUDGE --> RESULTS_J[Pattern Results<br/>Signal Badges]
+    JUDGE --> EXPORT_J[Copy/Export]
     
-    RESEARCH --> SEARCH[Search Interface]
-    RESEARCH --> UPLOAD[Document Upload]
-    RESEARCH --> RESULTS[Search Results]
+    DEVIL --> FORM_D[Arguments Input]
+    DEVIL --> RESULTS_D[Vulnerability Score<br/>Attack Points]
+    DEVIL --> EXPORT_D[Copy/Export]
+    
+    DASHBOARD --> CANVAS[Canvas Component]
+    CANVAS --> NODES[Document Nodes]
+    CANVAS --> CONNECTIONS[Connection Lines]
+    CANVAS --> CHAT[ChatPanel<br/>AI Assistant]
+    CANVAS --> RESEARCH[ResearchPanel<br/>Legal Search]
+    
+    DRAFTING --> EDITOR[Rich Text Editor]
+    DRAFTING --> PREVIEW[Court Format Preview]
+    DRAFTING --> TEMPLATES[Template Selector]
     
     style APP fill:#60a5fa,stroke:#1e40af
-    style ANALYTICS fill:#fbbf24,stroke:#d97706
-    style DETECTIVE fill:#34d399,stroke:#059669
-    style RESEARCH fill:#a78bfa,stroke:#7c3aed
+    style STRATEGY fill:#fbbf24,stroke:#d97706
+    style DASHBOARD fill:#34d399,stroke:#059669
+    style DRAFTING fill:#a78bfa,stroke:#7c3aed
 ```
 
 ---
