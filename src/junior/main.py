@@ -95,13 +95,21 @@ app = FastAPI(
 # Enable Gzip Compression (High Performance)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# CORS middleware
+# CORS middleware - Allow Vercel deployment domains
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://junior.legal",
+    "https://*.vercel.app",  # Vercel preview deployments
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.is_development else ["https://junior.legal"],
+    allow_origins=["*"] if settings.is_development else ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Match all Vercel subdomains
 )
 
 # Mount static files
