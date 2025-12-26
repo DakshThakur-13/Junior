@@ -1,8 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["python311", "python311Packages.pip"]
 
 [phases.install]
-cmds = ["pip install -e ."]
+cmds = ["python -m pip install --upgrade pip", "python -m pip install -e ."]
 
 [start]
-cmd = "uvicorn junior.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+cmd = "python -m uvicorn junior.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+
+[variables]
+PYTHONPATH = "src"
