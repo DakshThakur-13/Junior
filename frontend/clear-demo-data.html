@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear Demo Data - Junior</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            max-width: 600px;
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: #fbbf24;
+        }
+        .subtitle {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            margin-bottom: 2rem;
+        }
+        .section {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .section h2 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: #cbd5e1;
+        }
+        .item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0;
+            font-size: 0.875rem;
+            color: #94a3b8;
+        }
+        .icon {
+            font-size: 1rem;
+        }
+        .button {
+            width: 100%;
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #0f172a;
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 1rem;
+        }
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(251, 191, 36, 0.3);
+        }
+        .button:active {
+            transform: translateY(0);
+        }
+        .warning {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+        }
+        .success {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            margin-top: 1rem;
+            display: none;
+        }
+        .success.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧹 Clear Demo Data</h1>
+        <p class="subtitle">Prepare Junior for a clean demo video recording</p>
+
+        <div class="warning">
+            ⚠️ <strong>Warning:</strong> This will clear all search history, chat messages, drafts, and bookmarks. This action cannot be undone.
+        </div>
+
+        <div class="section">
+            <h2>📊 Data to be Cleared:</h2>
+            <div class="item">
+                <span class="icon">🔍</span>
+                <span>Search history</span>
+            </div>
+            <div class="item">
+                <span class="icon">💬</span>
+                <span>All chat conversations</span>
+            </div>
+            <div class="item">
+                <span class="icon">📝</span>
+                <span>Drafting Studio content</span>
+            </div>
+            <div class="item">
+                <span class="icon">🔖</span>
+                <span>Research bookmarks</span>
+            </div>
+            <div class="item">
+                <span class="icon">📌</span>
+                <span>Active case selection</span>
+            </div>
+            <div class="item">
+                <span class="icon">🎯</span>
+                <span>UI positions & preferences</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>✅ Data that will NOT be affected:</h2>
+            <div class="item">
+                <span class="icon">🗄️</span>
+                <span>Backend database</span>
+            </div>
+            <div class="item">
+                <span class="icon">📤</span>
+                <span>Uploaded files on server</span>
+            </div>
+            <div class="item">
+                <span class="icon">⚙️</span>
+                <span>System configuration</span>
+            </div>
+        </div>
+
+        <button class="button" onclick="clearData()">
+            Clear All Demo Data
+        </button>
+
+        <div class="success" id="success">
+            ✅ <strong>Success!</strong> All demo data has been cleared. Refresh the page to see the clean state.
+        </div>
+    </div>
+
+    <script>
+        function clearData() {
+            // Confirm action
+            if (!confirm('Are you sure you want to clear all demo data? This cannot be undone.')) {
+                return;
+            }
+
+            let clearedCount = 0;
+
+            // Clear specific keys
+            const keys = [
+                'jr_research_bookmarks',
+                'jr_research_history',
+                'jr_drafting_state_v1',
+                'jr_activeCase',
+                'junior:canvasToolbarPos',
+                'junior:radialPos'
+            ];
+
+            keys.forEach(key => {
+                if (localStorage.getItem(key) !== null) {
+                    localStorage.removeItem(key);
+                    clearedCount++;
+                }
+            });
+
+            // Clear all chat messages (dynamic keys)
+            Object.keys(localStorage)
+                .filter(key => key.startsWith('jr_chat_messages_'))
+                .forEach(key => {
+                    localStorage.removeItem(key);
+                    clearedCount++;
+                });
+
+            // Show success message
+            document.getElementById('success').classList.add('show');
+
+            console.log(`✅ Cleared ${clearedCount} localStorage items`);
+            console.log('🔄 Refresh the page to see clean state');
+
+            // Auto-refresh after 2 seconds
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+        }
+    </script>
+</body>
+</html>

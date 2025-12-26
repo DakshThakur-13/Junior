@@ -359,11 +359,17 @@ function DraftingStudio() {
   };
 
   const slashItems = [
-    { id: 'jurisdiction', label: 'Jurisdiction', insert: 'JURISDICTION\n\nThat this Hon\'ble Court has jurisdiction to entertain the present petition because…\n' },
-    { id: 'facts', label: 'Facts', insert: 'FACTS\n\n1. That…\n2. That…\n' },
-    { id: 'grounds', label: 'Grounds', insert: 'GROUNDS\n\nA. Because…\nB. Because…\n' },
-    { id: 'prayer', label: 'Prayer Clause', insert: 'PRAYER\n\nIt is, therefore, most respectfully prayed that this Hon\'ble Court may be pleased to…\n' },
-    { id: 'verification', label: 'Verification', insert: 'VERIFICATION\n\nVerified at ______ on this ___ day of ______ that the contents of the above are true and correct…\n' },
+    // Document Structure
+    { id: 'jurisdiction', label: 'Jurisdiction', category: 'Structure', description: 'Add jurisdiction clause', insert: 'JURISDICTION\n\nThat this Hon\'ble Court has jurisdiction to entertain the present petition because…\n' },
+    { id: 'facts', label: 'Facts', category: 'Structure', description: 'Statement of facts', insert: 'FACTS\n\n1. That…\n2. That…\n' },
+    { id: 'grounds', label: 'Grounds', category: 'Structure', description: 'Legal grounds for petition', insert: 'GROUNDS\n\nA. Because…\nB. Because…\n' },
+    { id: 'prayer', label: 'Prayer Clause', category: 'Structure', description: 'Prayer for relief', insert: 'PRAYER\n\nIt is, therefore, most respectfully prayed that this Hon\'ble Court may be pleased to…\n' },
+    { id: 'verification', label: 'Verification', category: 'Legal', description: 'Verification statement', insert: 'VERIFICATION\n\nVerified at ______ on this ___ day of ______ that the contents of the above are true and correct…\n' },
+    // Additional useful clauses
+    { id: 'arguments', label: 'Arguments', category: 'Structure', description: 'Main legal arguments', insert: 'ARGUMENTS\n\nA. ARGUMENT 1\n\n1. That…\n2. That…\n\nB. ARGUMENT 2\n\n1. That…\n2. That…\n' },
+    { id: 'reliefs', label: 'Reliefs Sought', category: 'Legal', description: 'List of reliefs', insert: 'RELIEFS SOUGHT\n\n(a) …\n(b) …\n(c) Any other relief this Hon\'ble Court deems fit.\n' },
+    { id: 'affidavit', label: 'Affidavit', category: 'Legal', description: 'Affidavit format', insert: 'AFFIDAVIT\n\nI, ______, S/o ______, R/o ______, do hereby solemnly affirm and state as follows:\n\n1. That…\n2. That…\n' },
+    { id: 'synopsis', label: 'Synopsis', category: 'Structure', description: 'Case synopsis', insert: 'SYNOPSIS\n\nBrief overview of the case:\n- Nature of dispute\n- Key facts\n- Legal issues\n- Relief sought\n' },
   ];
 
   const filteredSlash = slashItems.filter((i) => i.label.toLowerCase().includes(slashQuery.toLowerCase()));
@@ -665,19 +671,51 @@ function DraftingStudio() {
               </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono">
-                <span className="px-2 py-1 rounded-full border border-white/10 text-slate-400 bg-white/5">{wordCount} words</span>
-                <span className="px-2 py-1 rounded-full border border-white/10 text-slate-400 bg-white/5">{charCount} chars</span>
-                <span className="px-2 py-1 rounded-full border border-white/10 text-slate-400 bg-white/5">{lineCount} lines</span>
-                <span className="px-2 py-1 rounded-full border border-emerald-500/30 text-emerald-200 bg-emerald-500/10">{citeGood} good</span>
-                <span className="px-2 py-1 rounded-full border border-amber-500/30 text-amber-200 bg-amber-500/10">{citeWarn} caution</span>
-                <span className="px-2 py-1 rounded-full border border-rose-500/30 text-rose-200 bg-rose-500/10">{citeBad} bad</span>
+            <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 bg-white/5 backdrop-blur-sm">
+                  <span className="text-[9px] font-mono">{wordCount}</span>
+                  <span className="text-[9px] text-slate-500">words</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 bg-white/5 backdrop-blur-sm">
+                  <span className="text-[9px] font-mono">{charCount}</span>
+                  <span className="text-[9px] text-slate-500">chars</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 bg-white/5 backdrop-blur-sm">
+                  <span className="text-[9px] font-mono">{lineCount}</span>
+                  <span className="text-[9px] text-slate-500">lines</span>
+                </div>
+                <div className="w-px h-4 bg-white/10"></div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-200 bg-emerald-500/10 backdrop-blur-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                  <span className="text-[9px] font-mono font-bold">{citeGood}</span>
+                  <span className="text-[9px]">good</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-200 bg-amber-500/10 backdrop-blur-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+                  <span className="text-[9px] font-mono font-bold">{citeWarn}</span>
+                  <span className="text-[9px]">caution</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-rose-500/30 text-rose-200 bg-rose-500/10 backdrop-blur-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-rose-400"></div>
+                  <span className="text-[9px] font-mono font-bold">{citeBad}</span>
+                  <span className="text-[9px]">bad</span>
+                </div>
               </div>
 
-              <div className="text-[10px] text-slate-500 font-mono">
-                {saveState === 'saving' && 'Saving…'}
-                {saveState === 'saved' && lastSavedAt ? `Saved ${new Date(lastSavedAt).toLocaleTimeString()}` : null}
+              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                {saveState === 'saving' && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></div>
+                    <span>Saving…</span>
+                  </div>
+                )}
+                {saveState === 'saved' && lastSavedAt && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                    <span>Saved {new Date(lastSavedAt).toLocaleTimeString()}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -800,27 +838,50 @@ function DraftingStudio() {
 
                   {/* Slash menu */}
                   {slashOpen && (
-                    <div className="absolute left-2 top-4 z-40 w-72 glass-panel border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                      <div className="px-3 py-2 border-b border-white/10 text-[10px] text-slate-500 font-mono">
-                        /{slashQuery || '…'}
+                    <div className="absolute left-2 top-4 z-40 w-80 glass-panel border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                      <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-legal-gold/5 to-legal-gold/0">
+                        <div className="flex items-center gap-2">
+                          <Sparkles size={12} className="text-legal-gold" />
+                          <span className="text-[10px] text-slate-400 font-mono">/{slashQuery || '…'}</span>
+                        </div>
+                        <span className="text-[9px] text-slate-500 tracking-wider uppercase">Quick Insert</span>
                       </div>
-                      <div className="max-h-64 overflow-auto">
-                        {filteredSlash.map((item) => (
-                          <button
-                            key={item.id}
-                            onClick={() => {
-                              insertAtCursor(item.insert);
-                              setSlashOpen(false);
-                              setSlashQuery('');
-                            }}
-                            aria-label={`Insert ${item.label}`}
-                            title={`Insert ${item.label}`}
-                            className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-white/5 flex items-center justify-between"
-                          >
-                            <span>{item.label}</span>
-                            <ChevronRight size={14} className="text-slate-500" />
-                          </button>
-                        ))}
+                      <div className="max-h-80 overflow-auto">
+                        {(() => {
+                          const categories = Array.from(new Set(filteredSlash.map(i => i.category || 'Other')));
+                          return categories.map(category => {
+                            const items = filteredSlash.filter(i => (i.category || 'Other') === category);
+                            if (items.length === 0) return null;
+                            return (
+                              <div key={category}>
+                                <div className="px-3 py-1.5 text-[9px] text-slate-500 font-bold tracking-wider uppercase bg-black/20">
+                                  {category}
+                                </div>
+                                {items.map((item) => (
+                                  <button
+                                    key={item.id}
+                                    onClick={() => {
+                                      insertAtCursor(item.insert);
+                                      setSlashOpen(false);
+                                      setSlashQuery('');
+                                    }}
+                                    aria-label={`Insert ${item.label}`}
+                                    title={item.description || item.label}
+                                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-white/5 transition-colors flex items-center justify-between group border-b border-white/5 last:border-0"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium">{item.label}</div>
+                                      {item.description && (
+                                        <div className="text-[10px] text-slate-500 mt-0.5 truncate">{item.description}</div>
+                                      )}
+                                    </div>
+                                    <ChevronRight size={14} className="text-slate-600 group-hover:text-legal-gold transition-colors flex-shrink-0" />
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          });
+                        })()}
                         {filteredSlash.length === 0 && (
                           <div className="px-3 py-3 text-xs text-slate-500">No matching clauses.</div>
                         )}
@@ -849,41 +910,86 @@ function DraftingStudio() {
         {/* Right: Live preview + agentic sidebar */}
         <div className="w-full lg:flex-1 flex flex-col lg:flex-row bg-black/20 backdrop-blur-xl">
           <div className="flex-1 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h4 className="text-sm font-bold text-white">Live Preview</h4>
-                <div className="text-xs text-slate-500">WYSIWYG court layout (updates as you type)</div>
+            <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    Live Preview
+                    {previewHtml && <span className="text-[9px] text-emerald-400 font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">LIVE</span>}
+                  </h4>
+                  <div className="text-[10px] text-slate-500 mt-0.5">WYSIWYG court layout • Auto-updates</div>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleOpenPreview}
-                  disabled={isWorking}
-                  className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-bold tracking-wider disabled:opacity-50 transition-colors"
+                  disabled={isWorking || !previewHtml}
+                  title="Open in new tab"
+                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-[10px] font-bold tracking-wider disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                 >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
                   OPEN
                 </button>
                 <button
                   onClick={handleDownloadDoc}
-                  disabled={isWorking}
-                  className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-bold tracking-wider disabled:opacity-50 transition-colors"
+                  disabled={isWorking || !previewHtml}
+                  title="Download as .doc file"
+                  className="px-3 py-1.5 rounded-lg bg-legal-gold/10 hover:bg-legal-gold/20 border border-legal-gold/30 text-legal-gold text-[10px] font-bold tracking-wider disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
                 >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                   DOWNLOAD
                 </button>
               </div>
             </div>
 
-            {!previewHtml && (
-              <div className="mb-3 text-[11px] text-slate-500">
-                Preview will appear here when the formatting service is available.
+            {!previewHtml && content.trim() && (
+              <div className="mb-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/10 flex items-start gap-2">
+                <div className="mt-0.5">
+                  <svg className="w-4 h-4 text-blue-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1 text-[11px] text-slate-400">
+                  <div className="font-medium text-blue-300 mb-1">Generating preview...</div>
+                  <div>Your document is being formatted according to {court.replace('_', ' ')} rules.</div>
+                </div>
               </div>
             )}
 
-            <div className="rounded-xl overflow-hidden border border-white/10 bg-black/20 shadow-2xl">
+            {!previewHtml && !content.trim() && (
+              <div className="mb-3 p-4 rounded-lg bg-white/5 border border-white/10 text-center">
+                <svg className="w-10 h-10 text-slate-600 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <div className="text-xs text-slate-500">Start drafting to see live preview</div>
+              </div>
+            )}
+
+            <div className="rounded-xl overflow-hidden border border-white/10 shadow-2xl bg-gradient-to-br from-white/5 to-white/[0.02]">
               {previewHtml ? (
-                <iframe title="preview" className="w-full h-[420px] lg:h-[calc(100vh-170px)]" sandbox="allow-same-origin" srcDoc={previewHtml} />
+                <iframe 
+                  title="Document Preview" 
+                  className="w-full h-[420px] lg:h-[calc(100vh-200px)] bg-white" 
+                  sandbox="allow-same-origin" 
+                  srcDoc={previewHtml} 
+                />
               ) : (
-                <div className="h-[420px] lg:h-[calc(100vh-170px)] flex items-center justify-center text-slate-500 text-sm">
-                  Preview unavailable.
+                <div className="h-[420px] lg:h-[calc(100vh-200px)] flex flex-col items-center justify-center text-slate-500">
+                  <svg className="w-16 h-16 text-slate-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <div className="text-sm font-medium text-slate-600 mb-1">No Preview Available</div>
+                  <div className="text-xs text-slate-500">Start typing to see formatted output</div>
                 </div>
               )}
             </div>
@@ -993,6 +1099,22 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
     }
   }, [props.activeCase?.title, caseSummary]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (mode === 'judge' && !isWorking) {
+          void runAnalysis();
+        } else if (mode === 'devils' && !devilWorking) {
+          void runDevilsAdvocate();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, isWorking, devilWorking, judgeName, excerpts, caseSummary, argumentsText]);
+
   const splitExcerpts = (raw: string) => {
     const parts = raw
       .split(/\n---\n/g)
@@ -1087,9 +1209,82 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
   };
 
   const signalColor = (s: 'low' | 'medium' | 'high') => {
-    if (s === 'high') return 'text-rose-300 border-rose-500/30 bg-rose-500/10';
-    if (s === 'medium') return 'text-amber-300 border-amber-500/30 bg-amber-500/10';
-    return 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10';
+    if (s === 'high') return 'text-rose-200 border-rose-400/40 bg-rose-500/20 shadow-sm shadow-rose-500/20';
+    if (s === 'medium') return 'text-amber-200 border-amber-400/40 bg-amber-500/20 shadow-sm shadow-amber-500/20';
+    return 'text-emerald-200 border-emerald-400/40 bg-emerald-500/20 shadow-sm shadow-emerald-500/20';
+  };
+
+  const signalIcon = (s: 'low' | 'medium' | 'high') => {
+    if (s === 'high') return '⚠️';
+    if (s === 'medium') return '⚡';
+    return '✓';
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('Copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const exportResults = () => {
+    if (mode === 'judge' && result) {
+      const text = `JUDGE ANALYTICS REPORT
+======================
+
+Judge: ${result.judge_name}
+Cases Analyzed: ${result.total_cases_analyzed}
+
+PATTERNS:
+${result.patterns.map((p, i) => `
+${i + 1}. ${p.pattern} [${p.signal.toUpperCase()}]
+Evidence:
+${p.evidence.map(e => `  - ${e}`).join('\n')}
+${p.caveats.length ? `Limitations: ${p.caveats.join(', ')}` : ''}
+`).join('\n')}
+
+RECOMMENDATIONS:
+${result.recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+`;
+      copyToClipboard(text);
+    } else if (mode === 'devils' && devilResult) {
+      const text = `DEVIL'S ADVOCATE ANALYSIS
+=========================
+
+Vulnerability Score: ${devilResult.vulnerability_score}/10
+
+ATTACK POINTS:
+${devilResult.attack_points?.map((p, i) => `
+${i + 1}. ${p.title || `Attack Point ${i + 1}`}
+${p.weakness ? `Weakness: ${p.weakness}` : ''}
+${p.counter_citation ? `Counter-citation: ${p.counter_citation}` : ''}
+${p.suggested_attack ? `Suggested attack: ${p.suggested_attack}` : ''}
+`).join('\n') || 'None'}
+
+PREPARATION RECOMMENDATIONS:
+${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join('\n') || 'None'}
+`;
+      copyToClipboard(text);
+    }
+  };
+
+  const clearForm = () => {
+    if (mode === 'judge') {
+      setJudgeName('');
+      setCourt('high_court');
+      setCaseType('');
+      setExcerpts('');
+      setResult(null);
+      setError(null);
+    } else {
+      setCaseSummary('');
+      setArgumentsText('');
+      setCitationsRaw('');
+      setDevilResult(null);
+      setDevilError(null);
+    }
   };
 
   return (
@@ -1155,29 +1350,61 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
                   </button>
                 </div>
 
-                {mode === 'judge' ? (
-                  <button
-                    onClick={() => void runAnalysis()}
-                    disabled={isWorking}
-                    className="px-3 py-2 rounded-lg bg-legal-gold text-legal-bg text-xs font-bold tracking-wider shadow-glow hover:bg-yellow-400 transition-colors disabled:opacity-50"
-                  >
-                    {isWorking ? 'ANALYZING…' : 'ANALYZE'}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => void runDevilsAdvocate()}
-                    disabled={devilWorking}
-                    className="px-3 py-2 rounded-lg bg-legal-gold text-legal-bg text-xs font-bold tracking-wider shadow-glow hover:bg-yellow-400 transition-colors disabled:opacity-50"
-                  >
-                    {devilWorking ? 'SIMULATING…' : 'SIMULATE'}
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {((mode === 'judge' && result) || (mode === 'devils' && devilResult)) && (
+                    <>
+                      <button
+                        onClick={exportResults}
+                        className="px-2 py-2 rounded-lg bg-slate-700/50 text-slate-300 text-xs hover:bg-slate-700 transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        📋
+                      </button>
+                      <button
+                        onClick={clearForm}
+                        className="px-2 py-2 rounded-lg bg-slate-700/50 text-slate-300 text-xs hover:bg-slate-700 transition-colors"
+                        title="Clear form"
+                      >
+                        🗑️
+                      </button>
+                    </>
+                  )}
+
+                  {mode === 'judge' ? (
+                    <button
+                      onClick={() => void runAnalysis()}
+                      disabled={isWorking}
+                      className="px-3 py-2 rounded-lg bg-legal-gold text-legal-bg text-xs font-bold tracking-wider shadow-glow hover:bg-yellow-400 transition-colors disabled:opacity-50"
+                    >
+                      {isWorking ? 'ANALYZING…' : 'ANALYZE'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => void runDevilsAdvocate()}
+                      disabled={devilWorking}
+                      className="px-3 py-2 rounded-lg bg-legal-gold text-legal-bg text-xs font-bold tracking-wider shadow-glow hover:bg-yellow-400 transition-colors disabled:opacity-50"
+                    >
+                      {devilWorking ? 'SIMULATING…' : 'SIMULATE'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Keyboard Shortcut Hint */}
+            <div className="px-4 py-2 bg-black/10 border-t border-white/5">
+              <div className="text-[10px] text-slate-500 flex items-center gap-2">
+                <span>💡 Tip:</span>
+                <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px]">Ctrl</kbd>
+                <span>+</span>
+                <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px]">Enter</kbd>
+                <span>to {mode === 'judge' ? 'Analyze' : 'Simulate'}</span>
               </div>
             </div>
 
             {mode === 'judge' ? (
               <>
-                <div className="grid grid-cols-2 gap-3 mt-4">
+                <div className="grid grid-cols-2 gap-3 mt-4 px-4">
                   <div>
                     <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Judge</div>
                     <input
@@ -1204,55 +1431,85 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
                   </div>
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 px-4">
                   <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Case Type (optional)</div>
                   <input
                     value={caseType}
                     onChange={(e) => setCaseType(e.target.value)}
                     placeholder="Bail / Writ / IP / Service / …"
+                    title="Optional: Specify case type for better analysis"
                     className="mt-1 w-full glass-input rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-legal-gold/50 outline-none"
                   />
                 </div>
 
-                {error && <div className="mt-3 bg-rose-950/40 border border-rose-900/50 rounded-lg p-3 text-xs text-rose-200">{error}</div>}
+                {error && (
+                  <div className="mt-3 mx-4 bg-rose-950/40 border border-rose-900/50 rounded-lg p-3">
+                    <div className="text-xs text-rose-200 mb-2">{error}</div>
+                    <button
+                      onClick={() => {
+                        setError(null);
+                        void runAnalysis();
+                      }}
+                      className="text-[10px] px-2 py-1 bg-rose-900/40 hover:bg-rose-900/60 border border-rose-800 rounded text-rose-200 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
               <>
-                <div className="mt-4">
+                <div className="mt-4 px-4">
                   <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Case Summary</div>
                   <input
                     value={caseSummary}
                     onChange={(e) => setCaseSummary(e.target.value)}
                     placeholder="e.g., Bail application in State v. …"
+                    title="Brief summary of your case"
                     className="mt-1 w-full glass-input rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-legal-gold/50 outline-none"
                   />
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 px-4">
                   <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Your Arguments</div>
                   <textarea
                     value={argumentsText}
                     onChange={(e) => setArgumentsText(e.target.value)}
                     spellCheck={false}
                     placeholder="Paste your draft arguments / key points here…"
-                    className="mt-1 w-full h-[140px] resize-none glass-input rounded-xl px-4 py-3 text-xs text-slate-200 leading-relaxed outline-none"
+                    title="Your main arguments to stress-test"
+                    className="mt-1 w-full h-[140px] resize-none glass-input rounded-xl px-4 py-3 text-xs text-slate-200 leading-relaxed outline-none focus:border-legal-gold/50"
                     aria-label="Arguments"
                   />
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-3 px-4">
                   <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Citations (optional)</div>
                   <textarea
                     value={citationsRaw}
                     onChange={(e) => setCitationsRaw(e.target.value)}
                     spellCheck={false}
                     placeholder="One citation per line (optional)"
-                    className="mt-1 w-full h-[90px] resize-none glass-input rounded-xl px-4 py-3 text-xs text-slate-200 leading-relaxed outline-none"
+                    title="Supporting citations (optional)"
+                    className="mt-1 w-full h-[90px] resize-none glass-input rounded-xl px-4 py-3 text-xs text-slate-200 leading-relaxed outline-none focus:border-legal-gold/50"
                     aria-label="Citations"
                   />
                 </div>
 
-                {devilError && <div className="mt-3 bg-rose-950/40 border border-rose-900/50 rounded-lg p-3 text-xs text-rose-200">{devilError}</div>}
+                {devilError && (
+                  <div className="mt-3 mx-4 bg-rose-950/40 border border-rose-900/50 rounded-lg p-3">
+                    <div className="text-xs text-rose-200 mb-2">{devilError}</div>
+                    <button
+                      onClick={() => {
+                        setDevilError(null);
+                        void runDevilsAdvocate();
+                      }}
+                      className="text-[10px] px-2 py-1 bg-rose-900/40 hover:bg-rose-900/60 border border-rose-800 rounded text-rose-200 transition-colors"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1292,14 +1549,53 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
           <div className="space-y-3">
             {mode === 'judge' ? (
               <>
-                {!result && <div className="text-sm text-slate-500">Run Analyze to see results.</div>}
-
-                {result && (
-                  <>
+                {isWorking && (
+                  <div className="space-y-3 animate-pulse">
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
-                      <div className="text-xs text-slate-400">Judge</div>
-                      <div className="text-sm text-slate-200 font-bold mt-1">{result.judge_name}</div>
-                      <div className="text-xs text-slate-500 mt-1">Cases analyzed: {result.total_cases_analyzed}</div>
+                      <div className="h-4 bg-slate-700/50 rounded w-1/3 mb-2"></div>
+                      <div className="h-5 bg-slate-700/50 rounded w-1/2 mb-1"></div>
+                      <div className="h-3 bg-slate-700/50 rounded w-1/4"></div>
+                    </div>
+                    <div className="bg-black/20 border border-white/10 rounded-xl p-4">
+                      <div className="h-3 bg-slate-700/50 rounded w-1/4 mb-3"></div>
+                      <div className="space-y-2">
+                        <div className="h-16 bg-slate-700/50 rounded"></div>
+                        <div className="h-16 bg-slate-700/50 rounded"></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!isWorking && !result && (
+                  <div className="bg-black/10 border border-white/5 rounded-xl p-8 text-center">
+                    <div className="text-4xl mb-3">⚖️</div>
+                    <div className="text-sm text-slate-400">Run Analyze to see judicial patterns</div>
+                    <div className="text-xs text-slate-500 mt-2">Paste judgment excerpts and click ANALYZE</div>
+                  </div>
+                )}
+
+                {!isWorking && result && (
+                  <>
+                    {/* Quick Summary */}
+                    <div className="bg-gradient-to-br from-legal-gold/10 to-amber-900/10 border border-legal-gold/20 rounded-xl p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="text-xs text-amber-300/80 font-semibold tracking-wider uppercase">Analysis Complete</div>
+                          <div className="text-sm text-slate-200 font-bold mt-1">{result.judge_name}</div>
+                          <div className="flex items-center gap-3 mt-2 text-xs">
+                            <span className="text-slate-400">📊 {result.total_cases_analyzed} cases</span>
+                            <span className="text-slate-400">🎯 {result.patterns?.length || 0} patterns</span>
+                            <span className="text-slate-400">💡 {result.recommendations?.length || 0} tips</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          {result.patterns?.filter(p => p.signal === 'high').length > 0 && (
+                            <span className="text-xs px-2 py-1 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-200">
+                              ⚠️ {result.patterns.filter(p => p.signal === 'high').length} high
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
@@ -1307,10 +1603,13 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
                       {result.patterns?.length ? (
                         <div className="space-y-3">
                           {result.patterns.map((p, idx) => (
-                            <div key={idx} className="border border-white/10 rounded-lg p-3 bg-white/5">
+                            <div key={idx} className="border border-white/10 rounded-lg p-3 bg-white/5 hover:bg-white/10 transition-all duration-200">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-xs text-slate-200 font-semibold">{p.pattern}</div>
-                                <span className={`text-[10px] px-2 py-1 rounded-full border ${signalColor(p.signal)}`}>{p.signal.toUpperCase()}</span>
+                                <span className={`text-[10px] px-2 py-1 rounded-full border font-semibold flex items-center gap-1 ${signalColor(p.signal)}`}>
+                                  <span>{signalIcon(p.signal)}</span>
+                                  <span>{p.signal.toUpperCase()}</span>
+                                </span>
                               </div>
                               {!!p.evidence?.length && (
                                 <div className="mt-2 text-xs text-slate-400 space-y-1">
@@ -1345,16 +1644,54 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
               </>
             ) : (
               <>
-                {!devilResult && <div className="text-sm text-slate-500">Run Simulate to see attack points.</div>}
-
-                {devilResult && (
-                  <>
+                {devilWorking && (
+                  <div className="space-y-3 animate-pulse">
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
-                      <div className="text-xs text-slate-400">Vulnerability</div>
-                      <div className="text-sm text-slate-200 font-bold mt-1">
-                        {Number.isFinite(devilResult.vulnerability_score) ? `${devilResult.vulnerability_score.toFixed(1)}/10` : 'N/A'}
+                      <div className="h-4 bg-slate-700/50 rounded w-1/3 mb-2"></div>
+                      <div className="h-6 bg-slate-700/50 rounded w-1/4"></div>
+                    </div>
+                    <div className="bg-black/20 border border-white/10 rounded-xl p-4">
+                      <div className="h-3 bg-slate-700/50 rounded w-1/4 mb-3"></div>
+                      <div className="space-y-2">
+                        <div className="h-20 bg-slate-700/50 rounded"></div>
+                        <div className="h-20 bg-slate-700/50 rounded"></div>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">Higher means more angles for the opposition.</div>
+                    </div>
+                  </div>
+                )}
+
+                {!devilWorking && !devilResult && (
+                  <div className="bg-black/10 border border-white/5 rounded-xl p-8 text-center">
+                    <div className="text-4xl mb-3">⚔️</div>
+                    <div className="text-sm text-slate-400">Run Simulate to stress-test arguments</div>
+                    <div className="text-xs text-slate-500 mt-2">Enter case summary & arguments, then click SIMULATE</div>
+                  </div>
+                )}
+                {!devilWorking && devilResult && (
+                  <>
+                    {/* Quick Summary */}
+                    <div className="bg-gradient-to-br from-rose-500/10 to-red-900/10 border border-rose-400/20 rounded-xl p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="text-xs text-rose-300/80 font-semibold tracking-wider uppercase">Stress Test Complete</div>
+                          <div className="text-2xl font-bold mt-2">
+                            {Number.isFinite(devilResult.vulnerability_score) ? (
+                              <span className={devilResult.vulnerability_score > 7 ? 'text-rose-300' : devilResult.vulnerability_score > 4 ? 'text-amber-300' : 'text-emerald-300'}>
+                                {devilResult.vulnerability_score.toFixed(1)}/10
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">N/A</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 mt-2 text-xs">
+                            <span className="text-slate-400">⚔️ {devilResult.attack_points?.length || 0} attacks</span>
+                            <span className="text-slate-400">🛡️ {devilResult.preparation_recommendations?.length || 0} defenses</span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-400 max-w-[180px]">
+                          Vulnerability score: Higher means more angles for opposition
+                        </div>
+                      </div>
                     </div>
 
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
