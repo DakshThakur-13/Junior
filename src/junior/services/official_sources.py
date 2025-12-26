@@ -786,21 +786,42 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
 def get_preview(url: str) -> dict:
     """
     Fetches and extracts main content from a URL for instant preview.
-    Uses trafilatura with BeautifulSoup fallback.
+    Supports PDFs and HTML pages.
     """
     try:
-        import trafilatura
         import httpx
+        import re
+        
+        # Check if URL is a PDF
+        is_pdf = url.lower().endswith('.pdf') or '/pdf/' in url.lower() or 'pdf' in url.lower()
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,application/pdf,*/*;q=0.8",
+        }
+        
+        # Try to fetch and check content type
+        try:
+            response = httpx.get(url, headers=headers, timeout=20, follow_redirects=True)
+            response.raise_for_status()
+            content_type = response.headers.get('content-type', '').lower()
+            
+            if 'pdf' in content_type or is_pdf:
+                # Handle PDF
+                return _extract_pdf_preview(response.content, url)
+        except Exception as e:
+            logger.warning(f"Direct fetch failed: {e}")
+        
+        # For HTML pages, use trafilatura
+        import trafilatura
         from bs4 import BeautifulSoup
         
-        # First try trafilatura
         downloaded = trafilatura.fetch_url(url)
         text = None
         title = "Preview"
         
         if downloaded:
             text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-            # Try to get title from metadata
             try:
                 metadata = trafilatura.extract_metadata(downloaded)
                 if metadata and metadata.title:
@@ -811,37 +832,27 @@ def get_preview(url: str) -> dict:
         # Fallback to BeautifulSoup if trafilatura fails
         if not text:
             try:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
                 response = httpx.get(url, headers=headers, timeout=15, follow_redirects=True)
                 response.raise_for_status()
                 
                 soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # Get title
                 if soup.title:
                     title = soup.title.string or title
                 
-                # Remove script, style, nav, footer elements
                 for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript']):
                     tag.decompose()
                 
-                # Try to find main content
                 main_content = soup.find('main') or soup.find('article') or soup.find('div', class_='content') or soup.find('div', id='content')
                 
                 if main_content:
                     text = main_content.get_text(separator='\n', strip=True)
                 else:
-                    # Get body text
                     body = soup.find('body')
                     if body:
                         text = body.get_text(separator='\n', strip=True)
                 
-                # Clean up text
                 if text:
-                    # Remove excessive whitespace
-                    import re
                     text = re.sub(r'\n{3,}', '\n\n', text)
                     text = re.sub(r' {2,}', ' ', text)
                     text = text.strip()
@@ -857,7 +868,6 @@ def get_preview(url: str) -> dict:
                 "full_text_length": 0
             }
             
-        # Basic summarization (first 1500 chars for better context)
         summary = text[:1500] + "..." if len(text) > 1500 else text
         
         return {
@@ -868,6 +878,77 @@ def get_preview(url: str) -> dict:
     except Exception as e:
         logger.error(f"Preview failed for {url}: {e}")
         return {"error": str(e), "title": "Preview", "content": "", "full_text_length": 0}
+
+
+def _extract_pdf_preview(pdf_content: bytes, url: str) -> dict:
+    """Extract text preview from PDF content."""
+    try:
+        from pypdf import PdfReader
+        import io
+        
+        reader = PdfReader(io.BytesIO(pdf_content))
+        
+        # Extract title from metadata or URL
+        title = "PDF Document"
+        if reader.metadata:
+            if reader.metadata.title:
+                title = reader.metadata.title
+            elif reader.metadata.subject:
+                title = reader.metadata.subject
+        
+        # If no metadata title, try to get from URL
+        if title == "PDF Document":
+            import urllib.parse
+            path = urllib.parse.urlparse(url).path
+            filename = path.split('/')[-1]
+            if filename:
+                title = filename.replace('.pdf', '').replace('_', ' ').replace('-', ' ')
+        
+        # Extract text from first few pages
+        text_parts = []
+        max_pages = min(5, len(reader.pages))  # First 5 pages max
+        
+        for i in range(max_pages):
+            page_text = reader.pages[i].extract_text()
+            if page_text:
+                text_parts.append(page_text.strip())
+        
+        if not text_parts:
+            return {
+                "error": "Could not extract text from PDF. The file may be scanned/image-based.",
+                "title": title,
+                "content": "",
+                "full_text_length": 0
+            }
+        
+        full_text = '\n\n'.join(text_parts)
+        
+        # Clean up text
+        import re
+        full_text = re.sub(r'\n{3,}', '\n\n', full_text)
+        full_text = re.sub(r' {2,}', ' ', full_text)
+        
+        # Get summary (first 2000 chars for PDFs since they're denser)
+        summary = full_text[:2000] + "..." if len(full_text) > 2000 else full_text
+        
+        return {
+            "title": title,
+            "content": summary,
+            "full_text_length": len(full_text),
+            "metadata": {
+                "pages": len(reader.pages),
+                "type": "PDF"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"PDF extraction failed: {e}")
+        return {
+            "error": f"PDF extraction failed: {str(e)}",
+            "title": "PDF Document",
+            "content": "",
+            "full_text_length": 0
+        }
 
 
 async def search_sources(
