@@ -786,30 +786,88 @@ def _matches_query(item: OfficialSource, query: str) -> bool:
 def get_preview(url: str) -> dict:
     """
     Fetches and extracts main content from a URL for instant preview.
-    Uses trafilatura for robust extraction.
+    Uses trafilatura with BeautifulSoup fallback.
     """
     try:
         import trafilatura
+        import httpx
+        from bs4 import BeautifulSoup
         
+        # First try trafilatura
         downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
-            return {"error": "Could not fetch URL"}
-            
-        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        text = None
+        title = "Preview"
+        
+        if downloaded:
+            text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+            # Try to get title from metadata
+            try:
+                metadata = trafilatura.extract_metadata(downloaded)
+                if metadata and metadata.title:
+                    title = metadata.title
+            except:
+                pass
+        
+        # Fallback to BeautifulSoup if trafilatura fails
         if not text:
-            return {"error": "Could not extract text"}
+            try:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+                response = httpx.get(url, headers=headers, timeout=15, follow_redirects=True)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Get title
+                if soup.title:
+                    title = soup.title.string or title
+                
+                # Remove script, style, nav, footer elements
+                for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript']):
+                    tag.decompose()
+                
+                # Try to find main content
+                main_content = soup.find('main') or soup.find('article') or soup.find('div', class_='content') or soup.find('div', id='content')
+                
+                if main_content:
+                    text = main_content.get_text(separator='\n', strip=True)
+                else:
+                    # Get body text
+                    body = soup.find('body')
+                    if body:
+                        text = body.get_text(separator='\n', strip=True)
+                
+                # Clean up text
+                if text:
+                    # Remove excessive whitespace
+                    import re
+                    text = re.sub(r'\n{3,}', '\n\n', text)
+                    text = re.sub(r' {2,}', ' ', text)
+                    text = text.strip()
+                    
+            except Exception as e:
+                logger.warning(f"BeautifulSoup fallback failed: {e}")
+        
+        if not text:
+            return {
+                "error": "Could not extract text from this page. The website may block automated access.",
+                "title": title,
+                "content": "",
+                "full_text_length": 0
+            }
             
-        # Basic summarization (first 1000 chars)
-        summary = text[:1000] + "..." if len(text) > 1000 else text
+        # Basic summarization (first 1500 chars for better context)
+        summary = text[:1500] + "..." if len(text) > 1500 else text
         
         return {
-            "title": trafilatura.extract(downloaded, only_with_metadata=True).get('title', 'Preview'),
+            "title": title,
             "content": summary,
             "full_text_length": len(text)
         }
     except Exception as e:
         logger.error(f"Preview failed for {url}: {e}")
-        return {"error": str(e)}
+        return {"error": str(e), "title": "Preview", "content": "", "full_text_length": 0}
 
 
 async def search_sources(
