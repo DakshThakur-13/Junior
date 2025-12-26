@@ -360,7 +360,8 @@ async def preview_source(request: PreviewRequest):
     try:
         from junior.services.official_sources import get_preview
         
-        result = await get_preview(request.url)
+        # get_preview is a sync function, not async - don't await
+        result = get_preview(request.url)
         return PreviewResponse(
             title=result.get("title", "Preview"),
             content=result.get("content", ""),
