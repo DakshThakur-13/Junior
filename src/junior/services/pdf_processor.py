@@ -36,6 +36,18 @@ class PDFProcessor:
 
     # Common patterns in Indian legal documents
     PARAGRAPH_PATTERN = re.compile(r'^\s*(\d+)\.\s+', re.MULTILINE)
+
+    # Section headings that mark semantic boundaries in Indian judgments
+    # These act as natural chunk delimiters regardless of sliding-window size
+    SECTION_HEADING_PATTERN = re.compile(
+        r'^\s*(?:'
+        r'JUDGMENT|JUDGEMENT|ORDER|HELD|FACTS|BACKGROUND|ISSUES?|QUESTIONS? OF LAW|'
+        r'ARGUMENTS?|SUBMISSIONS?|CONTENTIONS?|ANALYSIS|REASONING|CONCLUSION|'
+        r'RATIO|PRAYER|RELIEF|OPERATIVE PART|ACCORDINGLY|RESULT)'
+        r'[:\s]*$',
+        re.IGNORECASE | re.MULTILINE,
+    )
+
     CASE_NUMBER_PATTERN = re.compile(
         r'(?:W\.P\.|Writ Petition|Criminal Appeal|Civil Appeal|SLP|'
         r'Criminal Misc\.|Bail Application|O\.A\.|Review Petition)'
@@ -156,23 +168,54 @@ class PDFProcessor:
 
         return paragraphs if paragraphs else [text]
 
+    def _split_into_sections(self, text: str) -> list[tuple[str, str]]:
+        """Split text on legal section headings.
+
+        Returns a list of (heading, body) tuples where *heading* is the
+        matched heading line (or "" for text before the first heading) and
+        *body* is the text that follows it.
+        """
+        # Find all heading positions
+        positions: list[tuple[int, str]] = []
+        for m in self.SECTION_HEADING_PATTERN.finditer(text):
+            positions.append((m.start(), m.group(0).strip()))
+
+        if not positions:
+            return [("" , text)]
+
+        sections: list[tuple[str, str]] = []
+        # Text before first heading
+        if positions[0][0] > 0:
+            preamble = text[:positions[0][0]].strip()
+            if preamble:
+                sections.append(("", preamble))
+
+        for idx, (start, heading) in enumerate(positions):
+            end = positions[idx + 1][0] if idx + 1 < len(positions) else len(text)
+            # Skip heading line itself
+            body_start = text.find("\n", start)
+            body = text[body_start:end].strip() if body_start != -1 else ""
+            if body:
+                sections.append((heading, body))
+
+        return sections if sections else [("", text)]
+
     def create_chunks(
         self,
         pages: list[PDFPage],
         document_id: str,
     ) -> Generator[DocumentChunk, None, None]:
         """
-        Create overlapping chunks from PDF pages
+        Create chunks from PDF pages using a three-tier strategy:
+          1. Numbered paragraphs  (natural legal boundaries)
+          2. Section headings     (HELD / FACTS / JUDGMENT etc.)
+          3. Sliding window       (fallback for unstructured text)
 
-        Args:
-            pages: List of PDFPage objects
-            document_id: ID of the parent document
-
-        Yields:
-            DocumentChunk objects
+        Each chunk carries a ``chunk_type`` metadata tag so downstream
+        retrieval can boost or filter by section type.
         """
         for page in pages:
-            # If we have numbered paragraphs, use them as natural chunks
+            # --- Tier 1: Numbered paragraphs (most reliable in Indian judgments) ---
             if len(page.paragraphs) > 1:
                 for i, para in enumerate(page.paragraphs, 1):
                     yield DocumentChunk(
@@ -181,36 +224,67 @@ class PDFProcessor:
                         content=para,
                         page_number=page.page_number,
                         paragraph_number=i,
-                        metadata={"source": "paragraph"},
+                        metadata={"source": "paragraph", "chunk_type": "paragraph"},
                     )
-            else:
-                # Fall back to sliding window chunks
-                text = page.text
-                start = 0
+                continue
+
+            # --- Tier 2: Section-heading split ---
+            sections = self._split_into_sections(page.text)
+            if len(sections) > 1:
                 para_counter = 1
+                for heading, body in sections:
+                    # A section may still be large; slide within it
+                    chunk_type = "heading" if heading else "paragraph"
+                    start = 0
+                    while start < len(body):
+                        end = start + self.chunk_size
+                        chunk_text = body[start:end]
+                        if end < len(body):
+                            last_period = chunk_text.rfind('.')
+                            if last_period > self.chunk_size // 2:
+                                end = start + last_period + 1
+                                chunk_text = body[start:end]
+                        content = f"{heading}\n{chunk_text}".strip() if heading else chunk_text.strip()
+                        if content:
+                            yield DocumentChunk(
+                                id=str(uuid4()),
+                                document_id=document_id,
+                                content=content,
+                                page_number=page.page_number,
+                                paragraph_number=para_counter,
+                                metadata={"source": "section", "section_heading": heading, "chunk_type": chunk_type},
+                            )
+                            para_counter += 1
+                        start = end - self.chunk_overlap
+                continue
 
-                while start < len(text):
-                    end = start + self.chunk_size
-                    chunk_text = text[start:end]
+            # --- Tier 3: Sliding window (fallback) ---
+            text = page.text
+            start = 0
+            para_counter = 1
 
-                    # Try to end at sentence boundary
-                    if end < len(text):
-                        last_period = chunk_text.rfind('.')
-                        if last_period > self.chunk_size // 2:
-                            end = start + last_period + 1
-                            chunk_text = text[start:end]
+            while start < len(text):
+                end = start + self.chunk_size
+                chunk_text = text[start:end]
 
-                    yield DocumentChunk(
-                        id=str(uuid4()),
-                        document_id=document_id,
-                        content=chunk_text.strip(),
-                        page_number=page.page_number,
-                        paragraph_number=para_counter,
-                        metadata={"source": "sliding_window"},
-                    )
+                # Try to end at sentence boundary
+                if end < len(text):
+                    last_period = chunk_text.rfind('.')
+                    if last_period > self.chunk_size // 2:
+                        end = start + last_period + 1
+                        chunk_text = text[start:end]
 
-                    para_counter += 1
-                    start = end - self.chunk_overlap
+                yield DocumentChunk(
+                    id=str(uuid4()),
+                    document_id=document_id,
+                    content=chunk_text.strip(),
+                    page_number=page.page_number,
+                    paragraph_number=para_counter,
+                    metadata={"source": "sliding_window", "chunk_type": "paragraph"},
+                )
+
+                para_counter += 1
+                start = end - self.chunk_overlap
 
     def extract_metadata(self, pages: list[PDFPage]) -> dict:
         """

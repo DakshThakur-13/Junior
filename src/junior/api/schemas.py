@@ -200,13 +200,14 @@ class OfficialSourceItem(BaseModel):
     """A curated source entry shown in Research tab."""
     id: str
     title: str
-    type: str  # Official | Study | Act | Constitution | Precedent | Law
+    type: str  # Official | Study | Act | Constitution | Precedent | Law | Web
     summary: str
     source: str
     url: str
     publisher: str
-    authority: str  # official | study
+    authority: str  # official | study | web
     tags: list[str] = Field(default_factory=list)
+    score: float = 0.0
 
 class OfficialSourcesSearchRequest(BaseModel):
     """Search curated official sources and study material."""
@@ -218,6 +219,8 @@ class OfficialSourcesSearchRequest(BaseModel):
 class OfficialSourcesSearchResponse(BaseModel):
     query: str
     results: list[OfficialSourceItem]
+    total_count: int = 0
+    search_time_ms: int = 0
 
 class ManualIngestRequest(BaseModel):
     """Request to ingest a public manual/book into the local RAG store."""
@@ -291,5 +294,6 @@ class HealthResponse(BaseModel):
     """Health check response"""
     status: str
     version: str
-    environment: str
-    services: dict[str, str]
+    timestamp: Optional[str] = None
+    environment: str = "development"
+    services: dict[str, str] = Field(default_factory=dict)

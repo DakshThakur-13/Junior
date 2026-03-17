@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from junior.core import settings
 from junior.api.schemas import HealthResponse
+from junior.db import get_supabase_client
 
 router = APIRouter()
 
@@ -26,7 +27,8 @@ async def health_check():
 
     # Check Supabase
     if settings.supabase_url and settings.supabase_key:
-        services["supabase"] = "configured"
+        db_status = get_supabase_client().healthcheck()
+        services["supabase"] = "connected" if db_status.get("ok") else f"degraded: {db_status.get('message')}"
     else:
         services["supabase"] = "not_configured"
 

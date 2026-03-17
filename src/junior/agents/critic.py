@@ -2,6 +2,8 @@
 Critic Agent - Validates research and identifies weaknesses
 """
 
+from typing import Optional
+
 from junior.core.types import AgentRole, CaseStatus
 from .base import BaseAgent, AgentState
 
@@ -19,43 +21,61 @@ class CriticAgent(BaseAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an exacting legal critic and fact-checker for Indian law. Your role is to ruthlessly validate legal research and identify any weaknesses. You must:
+        return """You are a Senior Advocate and former Additional Solicitor General with 35 years at the Indian Bar. You are known as the most exacting legal fact-checker in the country. Your critique is relied upon before Supreme Court Constitution Benches.
 
-1. VERIFY every citation against the source documents
-2. CHALLENGE logical leaps or unsupported conclusions
-3. IDENTIFY potential counter-arguments the opposing counsel might raise
-4. FLAG any citations that may be overruled, distinguished, or inapplicable
-5. ASSESS the overall strength of the legal position
+YOUR MANDATE: Ruthlessly validate every citation, spot every logical gap, and assign a rigorous confidence score.
 
-CRITICAL RULES:
-- NEVER approve a citation you cannot verify in the source documents
-- ALWAYS note if a case is from a lower court when higher court authority exists
-- QUESTION any broad statements not supported by specific citations
-- IDENTIFY jurisdictional issues (e.g., High Court judgment from different state)
-- CHECK for proper application of ratio vs obiter
+INDIAN COURT HIERARCHY (for precedent assessment):
+  SC Constitution Bench (5+ judges) > SC 3-Judge Bench > SC Division Bench > Single SC Judge
+  > High Court Division Bench > HC Single Judge > District Court
 
-VALIDATION CHECKLIST:
-□ Citation exists in source documents
-□ Paragraph number is accurate
-□ Legal principle is correctly stated
-□ Case has not been overruled
-□ Case is from appropriate jurisdiction
-□ Ratio decidendi properly identified
+KNOWN TRAPS TO CATCH:
+  - Cases decided pre-1973 that may conflict with Basic Structure doctrine
+  - High Court judgments from other states (persuasive, not binding)
+  - Cases where a subsequent larger bench has diluted or overruled the ratio
+  - Obiter dicta being cited as binding ratio
+  - Section numbers changed after codification (IPC → BNS 2023, CrPC → BNSS 2023)
+  - Judgments under challenge / pending larger bench reference
+
+VALIDATION CHECKLIST (assess each citation):
+  ☐ Does the document actually contain this citation?
+  ☐ Is the paragraph number accurate to the content cited?
+  ☐ Is the legal principle stated correctly (not paraphrased beyond recognition)?
+  ☐ Has this case been overruled, distinguished, or affirmed by a later bench?
+  ☐ Is this ratio decidendi or obiter dicta?
+  ☐ Is the court from the correct jurisdiction?
+  ☐ Does a larger SC bench exist on the same point?
+  ☐ Has the underlying statute been amended since this judgment?
+
+MULTI-DIMENSIONAL SCORING (score each out of 10, report all four):
+  A. Citation Accuracy  – Are citations real, verifiable, paragraph-accurate?
+  B. Legal Logic        – Do arguments flow correctly? Are principles applied rightly?
+  C. Hierarchy Respect  – Is SC authority prioritised? HC jurisdiction noted?
+  D. Coverage           – Are there missing angles the opposing counsel will exploit?
+
+  OVERALL SCORE = (A×0.35 + B×0.30 + C×0.20 + D×0.15)
 
 OUTPUT FORMAT:
-For each finding, provide:
-- Citation: [The citation being reviewed]
-- Verification: ✅ VERIFIED / ⚠️ CAUTION / ❌ INVALID
-- Issue: [Description of any problems found]
-- Recommendation: [How to address the issue]
+For each citation:
+  Citation: [case name and para]
+  Verification: ✅ VERIFIED / ⚠️ CAUTION / ❌ INVALID
+  Issue: [exact problem if any]
+  Recommendation: [concrete fix]
 
-OVERALL ASSESSMENT:
-- Strength Score: [1-10]
-- Major Weaknesses: [List]
-- Suggested Improvements: [List]
-- Ready for Court: [YES / NO / NEEDS REVISION]
+Overall Assessment:
+  Score A (Citation Accuracy): X/10
+  Score B (Legal Logic): X/10
+  Score C (Hierarchy Respect): X/10
+  Score D (Coverage): X/10
+  Strength Score: X/10  [computed weighted average]
+  Major Weaknesses:
+    - [bullet list]
+  Suggested Improvements:
+    - [bullet list]
+  Missing Authorities: [cases that SHOULD have been cited but weren’t]
+  Ready for Court: YES / NEEDS REVISION / NO
 
-Be constructive but uncompromising on accuracy."""
+Be surgical. A lawyer’s career depends on your thoroughness."""
 
     async def process(self, state: AgentState) -> AgentState:
         """
@@ -82,6 +102,14 @@ Be constructive but uncompromising on accuracy."""
         state.critiques.append(response)
         state.needs_revision = critique_results["needs_revision"]
         state.confidence_score = critique_results["confidence_score"]
+
+        # Populate critic_issues for the Researcher's targeted re-search loop
+        if critique_results["issues"]:
+            state.critic_issues = critique_results["issues"]
+            self.logger.info(
+                f"Identified {len(state.critic_issues)} specific issues for re-search: "
+                + "; ".join(state.critic_issues[:2])
+            )
 
         # Filter out invalid citations
         if critique_results["invalid_citations"]:
@@ -127,55 +155,141 @@ Be thorough and uncompromising. A lawyer's reputation depends on accuracy."""
 
     def _parse_critique_response(self, response: str) -> dict:
         """
-        Parse the critique response to extract validation results
+        Parse the critique response using multi-dimensional scoring.
 
-        Args:
-            response: LLM critique response
+        Dimensions (matching the new system prompt):
+          A. Citation Accuracy  (weight 0.35)
+          B. Legal Logic        (weight 0.30)
+          C. Hierarchy Respect  (weight 0.20)
+          D. Coverage           (weight 0.15)
 
         Returns:
-            Dictionary with critique results
+            dict with needs_revision, confidence_score, invalid_citations, issues
         """
+        import re
+
         response_lower = response.lower()
 
-        # Determine if revision is needed
-        needs_revision = (
-            "needs revision" in response_lower or
-            "❌ invalid" in response_lower or
-            "not ready" in response_lower or
-            "major weakness" in response_lower
+        # --- Determine if revision is needed ---
+        needs_revision = any(kw in response_lower for kw in (
+            "needs revision", "❌ invalid", "not ready", "major weakness",
+            "missing authorities", "no citation", "unsupported claim",
+        ))
+
+        # --- Multi-dimensional score extraction ---
+        def _extract_dim_score(label: str) -> Optional[float]:
+            """Extract 'Score X (Label): Y/10' or 'Label: Y/10' patterns."""
+            patterns = [
+                rf"score\s+\w+\s+\({re.escape(label)}\)[:\s]+(\d+(?:\.\d+)?)",
+                rf"{re.escape(label)}[:\s]+(\d+(?:\.\d+)?)\s*/\s*10",
+                rf"{re.escape(label.lower())}[:\s]+(\d+(?:\.\d+)?)",
+            ]
+            for pat in patterns:
+                m = re.search(pat, response_lower)
+                if m:
+                    val = float(m.group(1))
+                    return min(10.0, max(0.0, val))
+            return None
+
+        score_a = _extract_dim_score("Citation Accuracy")
+        score_b = _extract_dim_score("Legal Logic")
+        score_c = _extract_dim_score("Hierarchy Respect")
+        score_d = _extract_dim_score("Coverage")
+
+        # Try to read the overall "Strength Score" the LLM emitted directly
+        overall_match = re.search(
+            r"strength\s+score[:\s]+(\d+(?:\.\d+)?)\s*/?\s*10?",
+            response_lower,
         )
 
-        # Extract confidence score (look for patterns like "7/10" or "Score: 7")
-        import re
-        score_match = re.search(r'(?:score|strength)[:\s]*(\d+)(?:/10)?', response_lower)
-        if score_match:
-            confidence_score = float(score_match.group(1))
+        if overall_match:
+            confidence_score = min(10.0, max(0.0, float(overall_match.group(1))))
+        elif any(s is not None for s in (score_a, score_b, score_c, score_d)):
+            # Compute weighted average from available dimensions
+            weights = {
+                "a": (score_a, 0.35),
+                "b": (score_b, 0.30),
+                "c": (score_c, 0.20),
+                "d": (score_d, 0.15),
+            }
+            total_w = 0.0
+            total_score = 0.0
+            for _dim, (sc, wt) in weights.items():
+                if sc is not None:
+                    total_score += sc * wt
+                    total_w += wt
+            confidence_score = round(total_score / total_w, 1) if total_w > 0 else 5.0
         else:
-            # Estimate based on keywords
-            if "strong" in response_lower and "verified" in response_lower:
+            # Keyword fallback
+            if "✅" in response and "❌" not in response and "⚠️" not in response:
+                confidence_score = 8.5
+            elif "strong" in response_lower and "verified" in response_lower:
                 confidence_score = 8.0
-            elif "caution" in response_lower or "weakness" in response_lower:
-                confidence_score = 5.0
-            elif "invalid" in response_lower or "error" in response_lower:
+            elif "❌" in response:
                 confidence_score = 3.0
+            elif "⚠️" in response or "caution" in response_lower:
+                confidence_score = 5.5
             else:
                 confidence_score = 6.0
 
-        # Find invalid citations
-        invalid_citations = []
+        # --- Extract invalid citations ---
+        invalid_citations: list[str] = []
+        issues: list[str] = []
         lines = response.split("\n")
-        for i, line in enumerate(lines):
+
+        for line in lines:
+            stripped = line.strip()
             if "❌" in line or "invalid" in line.lower():
-                # Try to extract the citation reference
                 if "citation:" in line.lower():
                     parts = line.split(":", 1)
                     if len(parts) > 1:
                         invalid_citations.append(parts[1].strip())
 
+            # Harvest bullet points under weakness/improvement/missing sections
+            if stripped.startswith(("- ", "• ", "* ")):
+                issue_text = stripped.lstrip("-•* ").strip()
+                if len(issue_text) > 10:
+                    # Check if within a relevant section heading in the response
+                    pos = response.find(stripped)
+                    ctx = response[max(0, pos - 300): pos].lower()
+                    if any(kw in ctx for kw in (
+                        "major weakness", "suggested improvement", "missing", "gap", "issue:", "weakness:"
+                    )):
+                        issues.append(issue_text)
+
+        # Keyword fallback for issues
+        if not issues and needs_revision:
+            for line in lines:
+                s = line.strip()
+                if len(s) > 30 and any(kw in s.lower() for kw in (
+                    "missing", "weak", "no citation", "unsupported", "gap", "lacking", "missing authorities"
+                )):
+                    issues.append(s)
+                    if len(issues) >= 5:
+                        break
+
+        self.logger.debug(
+            f"[Critic] Scores — A:{score_a} B:{score_b} C:{score_c} D:{score_d} "
+            f"→ overall={confidence_score:.1f}, revision={needs_revision}"
+        )
+
+        return {
+            "needs_revision": needs_revision,
+            "confidence_score": confidence_score,
+            "score_citation_accuracy": score_a,
+            "score_legal_logic": score_b,
+            "score_hierarchy_respect": score_c,
+            "score_coverage": score_d,
+            "invalid_citations": invalid_citations,
+            "issues": issues,
+            "full_critique": response,
+        }
+
         return {
             "needs_revision": needs_revision,
             "confidence_score": confidence_score,
             "invalid_citations": invalid_citations,
+            "issues": issues,
             "full_critique": response,
         }
 

@@ -7,7 +7,206 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import date, datetime
 from enum import Enum
-from uuid import uuid4
+import hashlib
+
+
+def _safe_date(raw: object) -> Optional[date]:
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, str):
+            value = raw.replace("Z", "+00:00")
+            return datetime.fromisoformat(value).date()
+        if isinstance(raw, datetime):
+            return raw.date()
+        if isinstance(raw, date):
+            return raw
+    except Exception:
+        return None
+    return None
+
+
+def _as_case_status(raw: object) -> "CaseStatus":
+    text = str(raw or "").strip().lower()
+    if text in {"good_law", "distinguished", "overruled", "historical_record"}:
+        return CaseStatus.DISPOSED
+    if text in {"disposed", "decided", "closed"}:
+        return CaseStatus.DISPOSED
+    if text in {"reserved", "judgment_reserved"}:
+        return CaseStatus.RESERVED
+    if text in {"listed", "listed_for_hearing"}:
+        return CaseStatus.LISTED
+    if text in {"adjourned", "part_heard"}:
+        return CaseStatus.ADJOURNED
+    return CaseStatus.PENDING
+
+
+def _build_parties(party_map: object) -> list["CaseParty"]:
+    if not isinstance(party_map, dict):
+        return []
+
+    parties: list[CaseParty] = []
+    role_aliases = {
+        "petitioner": "petitioner",
+        "respondent": "respondent",
+        "plaintiff": "petitioner",
+        "defendant": "respondent",
+        "complainant": "petitioner",
+        "accused": "respondent",
+        "appellant": "petitioner",
+    }
+
+    for key, val in party_map.items():
+        role = role_aliases.get(str(key).lower(), str(key).lower())
+        if isinstance(val, str) and val.strip():
+            parties.append(CaseParty(name=val.strip(), role=role))
+        elif isinstance(val, list):
+            for v in val:
+                if isinstance(v, str) and v.strip():
+                    parties.append(CaseParty(name=v.strip(), role=role))
+
+    return parties
+
+
+def _normalize_court(raw: object) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return "other"
+    return text.lower()
+
+
+def _build_cases_from_grouped_docs(grouped: dict[str, list[dict]]) -> list["CaseHistory"]:
+    from datetime import date as date_type
+
+    cases: list[CaseHistory] = []
+    for case_number, docs in grouped.items():
+        docs_sorted = sorted(
+            docs,
+            key=lambda d: _safe_date(d.get("date")) or date_type.min,
+        )
+        first = docs_sorted[0]
+        latest = docs_sorted[-1]
+
+        doc_dates = [_safe_date(d.get("date")) for d in docs_sorted]
+        doc_dates = [d for d in doc_dates if d is not None]
+        filing_date = min(doc_dates) if doc_dates else date.today()
+
+        metadata_latest = latest.get("metadata") if isinstance(latest.get("metadata"), dict) else {}
+        next_hearing = _safe_date(metadata_latest.get("next_hearing"))
+        parties = _build_parties(latest.get("parties"))
+
+        subject_matter = metadata_latest.get("subject_matter")
+        if not isinstance(subject_matter, list):
+            subject_matter = []
+        if not subject_matter:
+            subject_matter = latest.get("keywords") if isinstance(latest.get("keywords"), list) else []
+
+        acts_sections = metadata_latest.get("acts_sections")
+        if not isinstance(acts_sections, list):
+            acts_sections = []
+        if not acts_sections:
+            acts_sections = latest.get("legal_provisions") if isinstance(latest.get("legal_provisions"), list) else []
+
+        related_cases = metadata_latest.get("related_cases")
+        if not isinstance(related_cases, list):
+            related_cases = []
+
+        timeline: list[TimelineEvent] = []
+        for idx, d in enumerate(docs_sorted, 1):
+            dmeta = d.get("metadata") if isinstance(d.get("metadata"), dict) else {}
+            event_date = _safe_date(d.get("date")) or filing_date
+            event_name = str(dmeta.get("timeline_title") or d.get("title") or f"Case Event {idx}")
+            event_desc = str(dmeta.get("timeline_description") or d.get("summary") or "").strip() or None
+            raw_type = str(dmeta.get("event_type") or "order").lower()
+            event_type = EventType.OTHER
+            for et in EventType:
+                if et.value == raw_type:
+                    event_type = et
+                    break
+
+            timeline.append(
+                TimelineEvent(
+                    id=str(d.get("id") or f"{case_number}-{idx}"),
+                    date=event_date,
+                    event_type=event_type,
+                    title=event_name,
+                    description=event_desc,
+                    documents=[str(d.get("id") or "")],
+                )
+            )
+
+        case_id = hashlib.sha1(case_number.encode("utf-8")).hexdigest()[:16]
+
+        cases.append(
+            CaseHistory(
+                id=case_id,
+                case_number=case_number,
+                title=str(first.get("title") or case_number),
+                court=_normalize_court(first.get("court")),
+                bench=str(metadata_latest.get("bench")) if metadata_latest.get("bench") else None,
+                status=_as_case_status(metadata_latest.get("case_status") or latest.get("status")),
+                filing_date=filing_date,
+                next_hearing=next_hearing,
+                parties=parties,
+                subject_matter=[str(x) for x in subject_matter if str(x).strip()],
+                acts_sections=[str(x) for x in acts_sections if str(x).strip()],
+                timeline=timeline,
+                related_cases=[str(x) for x in related_cases if str(x).strip()],
+                notes=str(metadata_latest.get("case_note")) if metadata_latest.get("case_note") else None,
+            )
+        )
+
+    return sorted(cases, key=lambda c: c.filing_date, reverse=True)
+
+
+def _try_build_cases_from_supabase() -> list["CaseHistory"]:
+    """Primary case source from Supabase documents table."""
+    try:
+        from collections import defaultdict
+        from junior.db.client import get_supabase_client
+
+        client = get_supabase_client()
+        if not client.is_configured:
+            return []
+
+        result = (
+            client.documents
+            .select("id,title,court,case_number,judgment_date,summary,legal_status,metadata,parties,keywords,legal_provisions")
+            .order("judgment_date", desc=False)
+            .limit(1000)
+            .execute()
+        )
+
+        rows = result.data or []
+        if not rows:
+            return []
+
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            case_number = str(row.get("case_number") or "").strip()
+            if not case_number:
+                continue
+
+            grouped[case_number].append(
+                {
+                    "id": row.get("id"),
+                    "title": row.get("title"),
+                    "court": row.get("court"),
+                    "date": row.get("judgment_date"),
+                    "summary": row.get("summary"),
+                    "status": row.get("legal_status"),
+                    "parties": row.get("parties") if isinstance(row.get("parties"), dict) else {},
+                    "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                    "keywords": row.get("keywords") if isinstance(row.get("keywords"), list) else [],
+                    "legal_provisions": row.get("legal_provisions") if isinstance(row.get("legal_provisions"), list) else [],
+                }
+            )
+
+        return _build_cases_from_grouped_docs(grouped)
+    except Exception:
+        return []
 
 
 def _try_build_cases_from_local_store() -> list[CaseHistory]:
@@ -20,7 +219,6 @@ def _try_build_cases_from_local_store() -> list[CaseHistory]:
         from pathlib import Path
         import json
         from collections import defaultdict
-        from datetime import date as date_type, datetime as dt_type
 
         docs_dir = Path("uploads") / "documents"
         if not docs_dir.exists():
@@ -39,54 +237,17 @@ def _try_build_cases_from_local_store() -> list[CaseHistory]:
             except Exception:
                 continue
 
-        cases: list[CaseHistory] = []
-        for case_number, docs in grouped.items():
-            # Determine filing_date as earliest document date
-            filing = None
-            for d in docs:
-                raw = d.get("date")
-                if not raw:
-                    continue
-                try:
-                    if isinstance(raw, str):
-                        # Accept ISO date or datetime
-                        if "T" in raw:
-                            dt = dt_type.fromisoformat(raw.replace("Z", "+00:00"))
-                            val = dt.date()
-                        else:
-                            val = dt_type.fromisoformat(raw).date()
-                    else:
-                        val = None
-                    if isinstance(val, date_type):
-                        filing = val if filing is None or val < filing else filing
-                except Exception:
-                    continue
-
-            filing_date = filing or date.today()
-            first = docs[0]
-
-            cases.append(
-                CaseHistory(
-                    id=case_number,
-                    case_number=case_number,
-                    title=str(first.get("title") or case_number),
-                    court=str(first.get("court") or ""),
-                    bench=None,
-                    status=CaseStatus.PENDING,
-                    filing_date=filing_date,
-                    next_hearing=None,
-                    parties=[],
-                    subject_matter=[],
-                    acts_sections=[],
-                    timeline=[],
-                    related_cases=[],
-                    notes=None,
-                )
-            )
-
-        return cases
+        return _build_cases_from_grouped_docs(grouped)
     except Exception:
         return []
+
+
+def _load_cases() -> list[CaseHistory]:
+    """Supabase-first case source with local fallback."""
+    supabase_cases = _try_build_cases_from_supabase()
+    if supabase_cases:
+        return supabase_cases
+    return _try_build_cases_from_local_store()
 
 router = APIRouter()
 
@@ -174,7 +335,7 @@ async def list_cases(
     """
     List cases with filtering and pagination.
     """
-    filtered = _try_build_cases_from_local_store()
+    filtered = _load_cases()
     
     if court:
         filtered = [c for c in filtered if court.lower() in c.court.lower()]
@@ -205,7 +366,7 @@ async def get_case(case_id: str):
     """
     Get detailed case history by ID.
     """
-    for case in _try_build_cases_from_local_store():
+    for case in _load_cases():
         if case.id == case_id:
             return case
     
@@ -217,7 +378,7 @@ async def search_cases(request: CaseSearchRequest):
     """
     Advanced search for cases.
     """
-    filtered = _try_build_cases_from_local_store()
+    filtered = _load_cases()
     
     if request.court:
         filtered = [c for c in filtered if request.court.lower() in c.court.lower()]
@@ -261,10 +422,9 @@ async def get_case_timeline(case_id: str):
     """
     Get timeline events for a case.
     """
-    for case in _try_build_cases_from_local_store():
+    for case in _load_cases():
         if case.id == case_id:
-            # Local-derived cases don't yet persist timeline events.
-            return []
+            return case.timeline
 
     raise HTTPException(status_code=404, detail="Case not found")
 
@@ -286,9 +446,9 @@ async def get_related_cases(case_id: str):
     """
     Get cases related to a specific case.
     """
-    for case in _try_build_cases_from_local_store():
+    for case in _load_cases():
         if case.id == case_id:
-            return {"case_id": case_id, "related_cases": []}
+            return {"case_id": case_id, "related_cases": case.related_cases}
 
     raise HTTPException(status_code=404, detail="Case not found")
 
@@ -305,8 +465,18 @@ async def get_upcoming_hearings(
     today = date.today()
     end_date = today + timedelta(days=days)
     
-    # Local-derived cases don't have hearing dates yet.
     upcoming = []
+    for c in _load_cases():
+        if c.next_hearing and today <= c.next_hearing <= end_date:
+            upcoming.append(
+                {
+                    "case_id": c.id,
+                    "case_number": c.case_number,
+                    "title": c.title,
+                    "court": c.court,
+                    "hearing_date": c.next_hearing,
+                }
+            )
     
     upcoming.sort(key=lambda x: x["hearing_date"])
     

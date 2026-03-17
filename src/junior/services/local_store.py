@@ -128,11 +128,16 @@ class LocalDocumentStore:
         limit: int = 10,
         bm25_weight: float = 0.35,
         vector_weight: float = 0.65,
+        use_rrf: bool = True,
     ) -> list[tuple[dict[str, Any], float]]:
-        """Hybrid retrieval: BM25-ish + cosine similarity.
+        """Hybrid retrieval: BM25 + cosine similarity fused via Reciprocal Rank Fusion (RRF).
 
-        - If `query_embedding` is None, falls back to BM25-only.
-        - Returns list of (chunk_dict, score) sorted descending.
+        RRF (Cormack et al. 2009) is rank-based rather than score-based, so it is
+        robust to score-scale differences between BM25 and cosine similarity.
+        Formula: RRF_score = Σ 1 / (k + rank_i)  where k=60 (standard constant).
+
+        Falls back to BM25-only when `query_embedding` is None, and to the old
+        weighted-sum when `use_rrf=False`.
         """
         chunks = list(self.iter_chunks())
         if not chunks:
@@ -142,7 +147,7 @@ class LocalDocumentStore:
         if not q_tokens:
             return []
 
-        # Build document frequencies for BM25.
+        # ---- BM25 scoring ----
         doc_tokens: list[list[str]] = []
         df: dict[str, int] = {}
         doc_lens: list[int] = []
@@ -165,13 +170,11 @@ class LocalDocumentStore:
             tf: dict[str, int] = {}
             for t in toks:
                 tf[t] = tf.get(t, 0) + 1
-
             score = 0.0
             dl = doc_lens[idx]
             for t in q_tokens:
                 if t not in tf:
                     continue
-                # idf with +1 smoothing
                 n_q = df.get(t, 0)
                 idf = math.log(1.0 + (n_docs - n_q + 0.5) / (n_q + 0.5))
                 freq = tf[t]
@@ -180,24 +183,49 @@ class LocalDocumentStore:
             return score
 
         bm25_scores = [bm25_score(i) for i in range(n_docs)]
-        bm25_max = max(bm25_scores) if bm25_scores else 0.0
 
-        results: list[tuple[dict[str, Any], float]] = []
-        for i, ch in enumerate(chunks):
-            bm25_norm = (bm25_scores[i] / bm25_max) if bm25_max > 0 else 0.0
-
-            vec_score = 0.0
-            if query_embedding is not None:
-                emb = ch.get("embedding")
-                if isinstance(emb, list) and emb and all(isinstance(x, (int, float)) for x in emb):
-                    vec_score = _cosine(query_embedding, emb)
-
-            if query_embedding is None:
-                score = bm25_norm
+        # ---- Vector (cosine) scoring ----
+        vec_scores: list[float] = []
+        for ch in chunks:
+            emb = ch.get("embedding")
+            if query_embedding is not None and isinstance(emb, list) and emb:
+                vec_scores.append(_cosine(query_embedding, emb))
             else:
-                score = (bm25_weight * bm25_norm) + (vector_weight * vec_score)
+                vec_scores.append(0.0)
 
-            results.append((ch, float(score)))
+        # ---- Fusion ----
+        if not use_rrf or query_embedding is None:
+            # Legacy weighted-sum (kept as fallback / BM25-only mode)
+            bm25_max = max(bm25_scores) if bm25_scores else 0.0
+            results: list[tuple[dict[str, Any], float]] = []
+            for i, ch in enumerate(chunks):
+                bm25_norm = (bm25_scores[i] / bm25_max) if bm25_max > 0 else 0.0
+                score = bm25_norm if query_embedding is None else (
+                    bm25_weight * bm25_norm + vector_weight * vec_scores[i]
+                )
+                results.append((ch, float(score)))
+        else:
+            # Reciprocal Rank Fusion
+            RRF_K = 60  # standard constant — lowers sensitivity to top-rank outliers
+
+            # Build rank lists (0-based, ascending rank = better)
+            bm25_order = sorted(range(n_docs), key=lambda i: bm25_scores[i], reverse=True)
+            vec_order = sorted(range(n_docs), key=lambda i: vec_scores[i], reverse=True)
+
+            bm25_rank = [0] * n_docs
+            vec_rank = [0] * n_docs
+            for rank, idx in enumerate(bm25_order):
+                bm25_rank[idx] = rank
+            for rank, idx in enumerate(vec_order):
+                vec_rank[idx] = rank
+
+            results = []
+            for i, ch in enumerate(chunks):
+                rrf_score = (
+                    bm25_weight * (1.0 / (RRF_K + bm25_rank[i] + 1))
+                    + vector_weight * (1.0 / (RRF_K + vec_rank[i] + 1))
+                )
+                results.append((ch, float(rrf_score)))
 
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:limit]

@@ -3,6 +3,7 @@ API Router - Main router combining all endpoint groups
 """
 
 from fastapi import APIRouter
+from fastapi import FastAPI
 
 from .endpoints import research, documents, chat, chat_stream, translate, format, health, judges, cases, websocket, audio, admin, consent
 from .endpoints.wall import router as wall_router
@@ -93,3 +94,10 @@ api_router.include_router(
     websocket.router,
     tags=["WebSocket"],
 )
+
+
+def create_app() -> FastAPI:
+    """Create a minimal FastAPI app with the v1 API router attached."""
+    app = FastAPI(title="Junior API")
+    app.include_router(api_router)
+    return app

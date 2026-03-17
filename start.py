@@ -1,208 +1,204 @@
 """
 Junior - AI Legal Assistant
-Simple one-command launcher
+Single-URL launcher: builds frontend once, serves everything from FastAPI on port 8000.
+
+  http://localhost:8000/       -> React app
+  http://localhost:8000/api/   -> FastAPI
+  http://localhost:8000/docs   -> Swagger UI
 """
 import subprocess
 import sys
 import os
-from pathlib import Path
-import time
-import socket
 import shutil
+import socket
+import time
 import atexit
+from pathlib import Path
+from typing import Any
 
+psutil: Any = None
 try:
-    import psutil
+    import psutil as _psutil
+    psutil = _psutil
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
 
-# Configuration
-BACKEND_PORT = 8000
-FRONTEND_PORT = 5173
-BACKEND_TIMEOUT = 15
-FRONTEND_TIMEOUT = 20
+# ── Configuration ──────────────────────────────────────────────────────────────
+PORT = 8000
+STARTUP_TIMEOUT = 20   # seconds to wait for uvicorn to bind
 
-def find_python_executable(project_root: Path) -> str:
-    """Find the best Python executable (prefer venv)."""
-    venv_paths = [
-        project_root / ".venv" / "Scripts" / "python.exe",  # Windows
-        project_root / ".venv" / "bin" / "python",          # Linux/Mac
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def find_python(project_root: Path) -> str:
+    """Return venv python if it exists, otherwise fall back to sys.executable."""
+    candidates = [
+        project_root / "venv"  / "Scripts" / "python.exe",   # Windows (venv)
+        project_root / ".venv" / "Scripts" / "python.exe",   # Windows (.venv)
+        project_root / "venv"  / "bin"     / "python",       # Linux/Mac
+        project_root / ".venv" / "bin"     / "python",
     ]
-    
-    for path in venv_paths:
-        if path.exists():
-            return str(path)
-    
+    for p in candidates:
+        if p.exists():
+            return str(p)
     return sys.executable
 
-def is_port_in_use(port: int) -> bool:
-    """Check if a port is already in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        return sock.connect_ex(('localhost', port)) == 0
 
-def clear_port(port: int) -> bool:
-    """Kill any process using the specified port."""
+def is_port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) != 0
+
+
+def free_port(port: int) -> None:
+    """Kill whatever is occupying the port (requires psutil)."""
     if not HAS_PSUTIL:
-        return False
-    
-    killed = False
-    for proc in psutil.process_iter(['pid', 'name']):
+        print(f"   [!] Port {port} in use. Install psutil for auto-kill, or stop it manually.")
+        return
+    if psutil is None:
+        return
+    for proc in psutil.process_iter(["pid", "name"]):
         try:
             for conn in proc.net_connections():
                 if conn.laddr.port == port:
-                    print(f"   🔴 Stopping {proc.info['name']} (PID: {proc.info['pid']}) on port {port}")
+                    print(f"   Stopping {proc.info['name']} (PID {proc.info['pid']}) on :{port}")
                     proc.terminate()
                     proc.wait(timeout=3)
-                    killed = True
-                    break
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, psutil.TimeoutExpired):
-            continue
-    
-    if killed:
-        time.sleep(1)
-    return killed
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+            pass
+    time.sleep(0.8)
 
-def wait_for_port(port: int, timeout: int = 30) -> bool:
-    """Wait for a server to start on the specified port."""
-    start = time.time()
-    while time.time() - start < timeout:
+
+def wait_for_port(port: int, timeout: int = STARTUP_TIMEOUT) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(0.5)
-                result = sock.connect_ex(('localhost', port))
-                if result == 0:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("localhost", port)) == 0:
                     return True
-        except (socket.timeout, OSError):
+        except OSError:
             pass
         time.sleep(0.5)
     return False
 
-def cleanup_processes(*processes):
-    """Gracefully terminate processes."""
-    for proc in processes:
-        if proc is None:
+
+def stop(*procs):
+    for p in procs:
+        if p is None:
             continue
         try:
-            proc.terminate()
-            proc.wait(timeout=5)
+            p.terminate()
+            p.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            p.kill()
         except Exception:
             pass
 
-def start_backend(python_exe: str, project_root: Path):
-    """Start the FastAPI backend server."""
-    print("📡 Starting Backend Server...")
-    
-    cmd = [
-        python_exe, "-m", "uvicorn",
-        "junior.main:app",
-        "--host", "0.0.0.0",
-        "--port", str(BACKEND_PORT),
-        "--reload"
-    ]
-    
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src")
-    
-    process = subprocess.Popen(
-        cmd,
-        env=env,
-        cwd=str(project_root)
-    )
-    
-    if wait_for_port(BACKEND_PORT, timeout=BACKEND_TIMEOUT):
-        print(f"   ✅ Backend ready on http://localhost:{BACKEND_PORT}")
-    else:
-        print(f"   ⚠️  Backend may still be starting...")
-    
-    return process
 
-def start_frontend(project_root: Path):
-    """Start the Vite frontend dev server."""
-    print("🎨 Starting Frontend...")
-    
-    # Check for npm
+# ── Build step ─────────────────────────────────────────────────────────────────
+
+def build_frontend(project_root: Path) -> bool:
+    """Run `npm run build` inside frontend/. Returns True on success."""
+    frontend_dir = project_root / "frontend"
+
+    if not frontend_dir.exists():
+        print("   [!] frontend/ directory not found — skipping build.")
+        return False
+
     if not (shutil.which("npm") or shutil.which("npm.cmd")):
-        print("   ❌ npm not found. Install Node.js from https://nodejs.org/")
-        return None
-    
-    process = subprocess.Popen(
-        "npm run dev",
-        cwd=str(project_root / "frontend"),
-        shell=True
-    )
-    
-    if wait_for_port(FRONTEND_PORT, timeout=FRONTEND_TIMEOUT):
-        print(f"   ✅ Frontend ready on http://localhost:{FRONTEND_PORT}")
-    else:
-        print(f"   ⚠️  Frontend may still be starting...")
-    
-    return process
+        print("   [!] npm not found. Install Node.js from https://nodejs.org/")
+        return False
+
+    # Install node_modules if missing
+    if not (frontend_dir / "node_modules").exists():
+        print("   Installing frontend dependencies...")
+        r = subprocess.run("npm install", cwd=str(frontend_dir), shell=True)
+        if r.returncode != 0:
+            print("   [!] npm install failed.")
+            return False
+
+    print("   Building...")
+    result = subprocess.run("npm run build", cwd=str(frontend_dir), shell=True)
+    if result.returncode != 0:
+        print("   [!] Frontend build failed — the app will start without a UI.")
+        return False
+
+    dist = frontend_dir / "dist" / "index.html"
+    if dist.exists():
+        print(f"   Build complete -> frontend/dist/")
+        return True
+
+    print("   [!] Build finished but dist/index.html not found.")
+    return False
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     print("=" * 60)
-    print("🎓 Starting Junior - Your AI Legal Assistant")
+    print("  Junior - AI Legal Assistant")
     print("=" * 60)
     print()
-    
+
     project_root = Path(__file__).parent
-    python_exe = find_python_executable(project_root)
-    
-    # Show Python being used
-    if python_exe != sys.executable:
-        print(f"🐍 Using virtual environment")
-    
-    # Clear ports
-    print("🔍 Preparing ports...")
-    for port in [BACKEND_PORT, FRONTEND_PORT]:
-        if is_port_in_use(port):
-            if HAS_PSUTIL:
-                clear_port(port)
-            else:
-                print(f"   ⚠️  Port {port} in use (install psutil to auto-clear)")
+    python_exe   = find_python(project_root)
+
+    # 1. Build frontend
+    print("[1/2] Building frontend...")
+    build_frontend(project_root)
     print()
-    
-    # Start services
-    backend = start_backend(python_exe, project_root)
-    if backend is None:
-        sys.exit(1)
-    
-    frontend = start_frontend(project_root)
-    if frontend is None:
-        cleanup_processes(backend)
-        sys.exit(1)
-    
-    # Register cleanup on exit
-    atexit.register(cleanup_processes, backend, frontend)
-    
+
+    # 2. Free port if occupied
+    if not is_port_free(PORT):
+        print(f"[!] Port {PORT} is in use — attempting to free it...")
+        free_port(PORT)
+
+    # 3. Start FastAPI (serves frontend + API on one port)
+    print(f"[2/2] Starting server on http://localhost:{PORT} ...")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src")
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    server = subprocess.Popen(
+        [python_exe, "-m", "uvicorn", "junior.main:app",
+         "--host", "0.0.0.0",
+         "--port", str(PORT),
+         "--reload",
+         "--reload-dir", str(project_root / "src")],
+        env=env,
+        cwd=str(project_root),
+    )
+    atexit.register(stop, server)
+
+    if wait_for_port(PORT):
+        print(f"   Ready!")
+    else:
+        print(f"   [!] Server did not respond within {STARTUP_TIMEOUT}s — check logs above.")
+
     print()
     print("=" * 60)
-    print("✅ Junior is running!")
+    print("  Junior is running!")
     print()
-    print(f"   🌐 Frontend: http://localhost:{FRONTEND_PORT}")
-    print(f"   📚 API Docs: http://localhost:{BACKEND_PORT}/docs")
+    print(f"  App   ->  http://localhost:{PORT}/")
+    print(f"  Docs  ->  http://localhost:{PORT}/docs")
     print()
-    print("   Press Ctrl+C to stop")
+    print("  Press Ctrl+C to stop")
     print("=" * 60)
     print()
-    
-    # Monitor processes
+
     try:
         while True:
-            if backend.poll() is not None:
-                print(f"\n❌ Backend stopped unexpectedly (exit code: {backend.poll()})")
-                break
-            if frontend.poll() is not None:
-                print(f"\n❌ Frontend stopped unexpectedly (exit code: {frontend.poll()})")
+            if server.poll() is not None:
+                print(f"\n[!] Server stopped unexpectedly (exit {server.poll()})")
                 break
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n\n🛑 Shutting down...")
+        print("\nShutting down...")
     finally:
-        cleanup_processes(backend, frontend)
-        print("✅ Stopped!")
+        stop(server)
+        print("Stopped.")
+
 
 if __name__ == "__main__":
     main()

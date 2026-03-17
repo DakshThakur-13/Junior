@@ -21,7 +21,7 @@ from junior.core import get_logger, settings
 logger = get_logger(__name__)
 
 # Cache versioning: bump this when search logic changes to avoid serving stale results
-SEARCH_CACHE_VERSION = 4
+SEARCH_CACHE_VERSION = 5
 
 # Persistent Cache (Stored in .cache folder, 1GB limit)
 # This survives app restarts!
@@ -32,8 +32,12 @@ try:
     from ddgs import DDGS
     HAS_DDGS = True
 except ImportError:
-    logger.warning("ddgs not installed. Live search disabled.")
-    HAS_DDGS = False
+    try:
+        from duckduckgo_search import DDGS  # fallback to old package name
+        HAS_DDGS = True
+    except ImportError:
+        logger.warning("ddgs not installed. Live search disabled.")
+        HAS_DDGS = False
 
 @dataclass(frozen=True)
 class OfficialSource:
@@ -79,6 +83,26 @@ TRUSTED_DOMAINS = [
     "lawrato.com",
     "vakilno1.com"
 ]
+
+def _sanitize_title(title: str) -> str:
+    """Clean up web search result titles by removing common junk patterns."""
+    if not title:
+        return "Untitled"
+    
+    cleaned = title
+    # Remove site: operators
+    cleaned = re.sub(r'\bsite:\S+', '', cleaned)
+    # Remove filetype: operators
+    cleaned = re.sub(r'\bfiletype\s*[:=]\s*\w+', '', cleaned, flags=re.IGNORECASE)
+    # Remove doctypes
+    cleaned = re.sub(r'\bdoctypes?\s*[:=]\s*\w+', '', cleaned, flags=re.IGNORECASE)
+    # Remove extra spaces
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
+    # Remove trailing file format junk
+    cleaned = re.sub(r'\s*\(.*?(pdf|docx?|xlsx?|zip|archive).*?\)\s*$', '', cleaned, flags=re.IGNORECASE).strip()
+    
+    return cleaned if len(cleaned) > 3 else title
+
 
 async def expand_query(user_query: str, category: Optional[str] = None) -> list[str]:
     """
@@ -212,47 +236,56 @@ async def search_live(query: str, category: Optional[str] = None, limit: int = 1
             
             for res in search_results:
                 url = res.get('href', '')
-                if url in seen_urls: continue
-                
-                # Domain Filter
-                matched_domain = False
-                for domain in TRUSTED_DOMAINS:
-                    if domain in url:
-                        matched_domain = True
-                        break
-                
-                # Category Strictness
-                # If user asked for "Official", strictly enforce .gov.in / .nic.in
-                if category and category.lower() == "official":
-                    if not any(d in url for d in ["gov.in", "nic.in", "sci.gov.in"]):
-                        matched_domain = False
+                title = res.get('title', '')
+                body = res.get('body', '')
+                if not url or not title or url in seen_urls:
+                    continue
 
-                if not matched_domain: continue
+                # Determine if this result is from a trusted legal domain
+                is_trusted = any(domain in url for domain in TRUSTED_DOMAINS)
+                is_govt = any(d in url for d in ["gov.in", "nic.in", "sci.gov.in"])
+
+                # Category Strictness: For "official" filter only show government sites
+                if category and category.lower() == "official":
+                    if not is_govt:
+                        continue
 
                 seen_urls.add(url)
-                
-                # Determine type
-                doc_type = "Official"
-                title_lower = res['title'].lower()
-                if "judgment" in title_lower or "vs" in title_lower or "court" in title_lower:
+
+                # Determine type based on URL and title keywords
+                title_lower = title.lower()
+                doc_type = "Web"  # Default for general internet results
+                if is_govt:
+                    doc_type = "Official"
+                if "judgment" in title_lower or " vs " in title_lower or " v. " in title_lower or "court" in title_lower:
                     doc_type = "Precedent"
-                elif "act" in title_lower or "section" in title_lower or "code" in title_lower:
+                elif "act" in title_lower or "section" in title_lower or "code" in title_lower or "statute" in title_lower:
                     doc_type = "Act"
-                
+                elif any(x in url for x in ["wikipedia", "blog.", "/article", "ipleaders", "legalservice"]):
+                    doc_type = "Study"
+
                 # Determine authority
-                authority = "official"
-                if any(x in url for x in ["livelaw", "barandbench", "indiankanoon", "legalservice", "ipleaders"]):
-                    authority = "study"
+                if is_govt:
+                    item_authority = "official"
+                elif is_trusted:
+                    item_authority = "study"
+                else:
+                    item_authority = "web"
+
+                try:
+                    source_domain = url.split('/')[2]
+                except (IndexError, AttributeError):
+                    source_domain = "Web"
 
                 local_results.append(OfficialSource(
                     id=f"live_{abs(hash(url))}",
-                    title=res['title'],
+                    title=_sanitize_title(title),
                     type=doc_type,
-                    summary=res['body'],
-                    source=url.split('/')[2],
+                    summary=body,
+                    source=source_domain,
                     url=url,
                     publisher="Web Search",
-                    authority=authority,
+                    authority=item_authority,
                     tags=("live_search",)
                 ))
         except Exception as e:
@@ -710,6 +743,59 @@ CATALOG: tuple[OfficialSource, ...] = (
     ),
 )
 
+def _score_item(item: OfficialSource, query: str) -> float:
+    """Score an item's relevance to the query (higher = more relevant)."""
+    if not query:
+        return 0.0
+
+    q = query.strip().lower()
+    # Ignore very short tokens (stop words etc.)
+    query_tokens = [t for t in q.split() if len(t) > 2]
+
+    title_lower = item.title.lower()
+    summary_lower = item.summary.lower()
+    tags_text = " ".join(item.tags).lower()
+
+    score = 0.0
+
+    # --- Title matching (highest weight) ---
+    if q == title_lower:
+        score += 100.0
+    elif title_lower.startswith(q):
+        score += 80.0
+    elif q in title_lower:
+        score += 60.0
+    else:
+        matched = sum(1 for t in query_tokens if t in title_lower)
+        score += matched * 20.0
+        if matched == len(query_tokens) and query_tokens:
+            score += 20.0  # all tokens present
+
+    # --- Tag matching ---
+    if q in tags_text:
+        score += 35.0
+    else:
+        score += sum(12.0 for t in query_tokens if t in tags_text)
+
+    # --- Summary matching ---
+    if q in summary_lower:
+        score += 20.0
+    else:
+        score += sum(5.0 for t in query_tokens if t in summary_lower)
+
+    # --- Source authority bonus ---
+    if item.authority == "official":
+        score += 15.0
+    elif item.authority == "web":
+        score -= 5.0  # slight penalty for unverified sources
+
+    # Freshness bonus for live results
+    if "live_search" in item.tags:
+        score += 3.0
+
+    return score
+
+
 def _matches_query(item: OfficialSource, query: str) -> bool:
     """Ultra-flexible query matching with acronym support, partial matching, and fuzzy token matching."""
     q = query.strip().lower()
@@ -869,11 +955,15 @@ def get_preview(url: str) -> dict:
             }
             
         summary = text[:1500] + "..." if len(text) > 1500 else text
+        insights = _build_preview_insights(text)
         
         return {
             "title": title,
             "content": summary,
-            "full_text_length": len(text)
+            "full_text_length": len(text),
+            "summary_ai": insights["summary_ai"],
+            "key_points": insights["key_points"],
+            "quotes": insights["quotes"],
         }
     except Exception as e:
         logger.error(f"Preview failed for {url}: {e}")
@@ -930,11 +1020,15 @@ def _extract_pdf_preview(pdf_content: bytes, url: str) -> dict:
         
         # Get summary (first 2000 chars for PDFs since they're denser)
         summary = full_text[:2000] + "..." if len(full_text) > 2000 else full_text
+        insights = _build_preview_insights(full_text)
         
         return {
             "title": title,
             "content": summary,
             "full_text_length": len(full_text),
+            "summary_ai": insights["summary_ai"],
+            "key_points": insights["key_points"],
+            "quotes": insights["quotes"],
             "metadata": {
                 "pages": len(reader.pages),
                 "type": "PDF"
@@ -951,15 +1045,61 @@ def _extract_pdf_preview(pdf_content: bytes, url: str) -> dict:
         }
 
 
+def _build_preview_insights(text: str) -> dict:
+    """Create lightweight summary/key points from extracted text without an LLM call."""
+    if not text:
+        return {
+            "summary_ai": None,
+            "key_points": [],
+            "quotes": [],
+        }
+
+    sentences = [
+        s.strip() for s in re.split(r"(?<=[.!?])\s+", text)
+        if s and len(s.strip()) > 40
+    ]
+
+    summary_sentences = sentences[:3]
+    summary_ai = " ".join(summary_sentences) if summary_sentences else text[:400]
+
+    key_points: list[str] = []
+    seen = set()
+    for sentence in sentences:
+        point = sentence.strip().replace("\n", " ")
+        if not point:
+            continue
+        normalized = point.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        key_points.append(point[:220])
+        if len(key_points) >= 5:
+            break
+
+    quotes = [s[:220] for s in sentences[3:6]]
+
+    return {
+        "summary_ai": summary_ai,
+        "key_points": key_points,
+        "quotes": quotes,
+    }
+
+
 async def search_sources(
     query: str = "",
     *,
     category: Optional[str] = None,
     authority: Optional[str] = None,
     limit: int = 200,
-) -> list[OfficialSource]:
-    """Search the curated sources catalog AND live web."""
+) -> tuple[list[OfficialSource], int]:
+    """Search the curated sources catalog AND live web.
     
+    Returns (results, search_time_ms).
+    """
+    
+    import time
+    t_start = time.monotonic()
+
     logger.info(f"SEARCH STARTED: query='{query}', category={category}, authority={authority}, limit={limit}")
     
     # Check Cache (Persistent)
@@ -971,7 +1111,8 @@ async def search_sources(
         # Safety: don't keep serving a stale empty cache for live queries.
         if cached or not query:
             logger.info(f"💾 Serving cached combined results for: {query} (count: {len(cached)})")
-            return cached
+            elapsed_ms = int((time.monotonic() - t_start) * 1000)
+            return cached, elapsed_ms
         else:
             logger.info(f"⚠️ Cache exists but is empty, will fetch fresh results")
 
@@ -1015,22 +1156,36 @@ async def search_sources(
 
     # 3. Combine results (Live first if query exists, else Catalog)
     combined = live_results + catalog_results
-    
-    # Deduplicate by URL
-    seen_urls = set()
-    unique_results = []
-    for item in combined:
+
+    # 4. Score and sort by relevance when a query is present
+    if query:
+        scored = sorted(
+            combined,
+            key=lambda it: _score_item(it, query),
+            reverse=True,
+        )
+    else:
+        scored = combined
+
+    # 5. Deduplicate by URL (preserving score order)
+    seen_urls: set[str] = set()
+    unique_results: list[OfficialSource] = []
+    for item in scored:
         if item.url not in seen_urls:
             unique_results.append(item)
             seen_urls.add(item.url)
 
     final_results = unique_results[:limit]
-    
-    logger.info(f"Final results for '{query}': {len(final_results)} items (after dedup from {len(combined)} combined)")
-    
+
+    elapsed_ms = int((time.monotonic() - t_start) * 1000)
+    logger.info(
+        f"Final results for '{query}': {len(final_results)} items "
+        f"(from {len(combined)} combined) in {elapsed_ms}ms"
+    )
+
     # Cache the results (Expire after 24 hours)
     SEARCH_CACHE.set(cache_key, final_results, expire=86400)
-    
-    return final_results
+
+    return final_results, elapsed_ms
 
 

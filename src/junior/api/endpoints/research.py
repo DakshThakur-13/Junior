@@ -324,29 +324,33 @@ async def search_official_sources(request: OfficialSourcesSearchRequest):
                 results=[],
             )
 
-        items = await search_sources(
+        items, search_time_ms = await search_sources(
             request.query,
             category=request.category,
             authority=request.authority,
             limit=request.limit,
         )
 
+        result_items = [
+            OfficialSourceItem(
+                id=it.id,
+                title=it.title,
+                type=it.type,
+                summary=it.summary,
+                source=it.source,
+                url=it.url,
+                publisher=it.publisher,
+                authority=it.authority,
+                tags=list(it.tags),
+            )
+            for it in items
+        ]
+
         return OfficialSourcesSearchResponse(
             query=request.query,
-            results=[
-                OfficialSourceItem(
-                    id=it.id,
-                    title=it.title,
-                    type=it.type,
-                    summary=it.summary,
-                    source=it.source,
-                    url=it.url,
-                    publisher=it.publisher,
-                    authority=it.authority,
-                    tags=list(it.tags),
-                )
-                for it in items
-            ],
+            results=result_items,
+            total_count=len(result_items),
+            search_time_ms=search_time_ms,
         )
     except Exception as e:
         logger.error(f"Official sources search error: {e}")

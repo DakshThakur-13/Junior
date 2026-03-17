@@ -15,6 +15,7 @@ from .nodes import (
     critique_node,
     write_node,
     search_documents_node,
+    validate_node,
     decide_next,
 )
 
@@ -26,42 +27,45 @@ def create_research_graph() -> Any:
 
     The workflow follows this pattern:
 
-    ┌─────────────────────────────────────────────────────────┐
-    │                    START                                 │
-    │                      │                                   │
-    │                      ▼                                   │
-    │               ┌──────────────┐                          │
-    │               │   SEARCH     │                          │
-    │               │  Documents   │                          │
-    │               └──────────────┘                          │
-    │                      │                                   │
-    │                      ▼                                   │
-    │               ┌──────────────┐                          │
-    │          ┌───▶│  RESEARCH    │◀───┐                     │
-    │          │    │    Agent     │    │                     │
-    │          │    └──────────────┘    │                     │
-    │          │           │            │                     │
-    │          │           ▼            │                     │
-    │          │    ┌──────────────┐    │                     │
-    │          │    │   CRITIQUE   │    │                     │
-    │          │    │    Agent     │────┘                     │
-    │          │    └──────────────┘  (if needs revision)     │
-    │          │           │                                   │
-    │          │           ▼                                   │
-    │          │    ┌──────────────┐                          │
-    │          │    │    WRITE     │                          │
-    │          │    │    Agent     │                          │
-    │          │    └──────────────┘                          │
-    │          │           │                                   │
-    │          │           ▼                                   │
-    │          │    ┌──────────────┐                          │
-    │          └────│   DECIDE     │                          │
-    │               │  Next Step   │                          │
-    │               └──────────────┘                          │
-    │                      │                                   │
-    │                      ▼                                   │
-    │                    END                                   │
-    └─────────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────┐
+    │                      START                                   │
+    │                        │                                     │
+    │                        ▼                                     │
+    │                 ┌──────────────┐                            │
+    │                 │   SEARCH     │  (parallel: DB + Kanoon)   │
+    │                 │  Documents   │                            │
+    │                 └──────────────┘                            │
+    │                        │                                     │
+    │                        ▼                                     │
+    │                 ┌──────────────┐                            │
+    │            ┌───▶│  RESEARCH    │◀───┐                       │
+    │            │    │    Agent     │    │                       │
+    │            │    └──────────────┘    │                       │
+    │            │           │            │                       │
+    │            │           ▼            │                       │
+    │            │    ┌──────────────┐    │                       │
+    │            │    │   CRITIQUE   │    │                       │
+    │            │    │    Agent     │────┘                       │
+    │            │    └──────────────┘  (if needs revision)       │
+    │            │           │                                     │
+    │            │           ▼                                     │
+    │            │    ┌──────────────┐                            │
+    │            │    │    WRITE     │                            │
+    │            │    │    Agent     │                            │
+    │            │    └──────────────┘                            │
+    │            │           │                                     │
+    │            │           ▼                                     │
+    │            │    ┌──────────────┐                            │
+    │            │    │   VALIDATE   │  (citation/hallucination)  │
+    │            │    │    Gate      │                            │
+    │            │    └──────────────┘                            │
+    │            │       │         │                              │
+    │            │  pass │         │ fail                        │
+    │            │       ▼         └──────────────────────────┐  │
+    │            │     END                                    │  │
+    │            └───────────────────────────────────────────-┘  │
+    │                  (loops back through critique)              │
+    └─────────────────────────────────────────────────────────────┘
 
     Returns:
         Compiled StateGraph
@@ -75,32 +79,37 @@ def create_research_graph() -> Any:
     workflow.add_node("research", research_node)
     workflow.add_node("critique", critique_node)
     workflow.add_node("write", write_node)
+    workflow.add_node("validate", validate_node)
 
     # Set entry point
     workflow.set_entry_point("search")
 
-    # Add edges
+    # Fixed edges
     workflow.add_edge("search", "research")
     workflow.add_edge("research", "critique")
+    workflow.add_edge("write", "validate")  # always validate after writing
 
-    # Conditional edges from critique
+    # critique → research (revision) or write (satisfied)
     workflow.add_conditional_edges(
         "critique",
         lambda state: "research" if state.needs_revision and state.iteration < state.max_iterations else "write",
         {
             "research": "research",
             "write": "write",
-        }
+        },
     )
 
-    # Conditional edges from write
+    # validate → END (pass) or critique (fail — trigger another loop)
     workflow.add_conditional_edges(
-        "write",
-        lambda state: "end" if state.final_output or state.iteration >= state.max_iterations else "critique",
+        "validate",
+        lambda state: "end" if (
+            not state.needs_revision
+            or state.iteration >= state.max_iterations
+        ) else "critique",
         {
             "end": END,
             "critique": "critique",
-        }
+        },
     )
 
     return workflow.compile()

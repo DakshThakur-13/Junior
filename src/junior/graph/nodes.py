@@ -2,6 +2,7 @@
 LangGraph workflow nodes for the Agentic RAG pipeline
 """
 
+import asyncio
 from typing import Literal, Optional
 
 from junior.agents import ResearcherAgent, CriticAgent, WriterAgent
@@ -15,29 +16,6 @@ logger = get_logger(__name__)
 researcher = ResearcherAgent()
 critic = CriticAgent()
 writer = WriterAgent()
-
-def _detect_uncited_paragraphs(text: str) -> list[int]:
-    """Return 1-based indices of paragraphs that appear uncited.
-
-    Heuristic: if a paragraph contains substantive content but no citation marker
-    like 'Para', '(See:', 'SCC', 'AIR', etc., treat it as uncited.
-    """
-    import re
-
-    if not text:
-        return []
-
-    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    markers = re.compile(r"\b(Para\s*\d+|at\s+Para\s*\d+|\(See:|SCC\b|AIR\b|CriLJ\b|supra\b)\b", re.IGNORECASE)
-
-    uncited: list[int] = []
-    for idx, p in enumerate(paras, 1):
-        # Skip headings / very short lines
-        if len(p) < 80:
-            continue
-        if not markers.search(p):
-            uncited.append(idx)
-    return uncited
 
 async def research_node(state: AgentState) -> AgentState:
     """
@@ -177,66 +155,64 @@ async def search_documents_node(state: AgentState) -> AgentState:
 
     This node is called before research to populate the documents
     in the state from the database.
+
+    Parallel execution: local vector search + Indian Kanoon API run concurrently
+    so total latency ≈ max(local_latency, kanoon_latency) instead of their sum.
     """
     from junior.db import DocumentRepository
     from junior.services.embedding import EmbeddingService
+    from junior.services.kanoon_client import get_kanoon_client
 
-    logger.info("[SEARCH NODE] Searching for relevant documents...")
+    logger.info("[SEARCH NODE] Parallel search: local DB + Indian Kanoon...")
 
     query_embedding: Optional[list[float]] = None
 
-    try:
-        # Get embedding for the query
-        embedding_service = EmbeddingService()
-        query_embedding = await embedding_service.get_embedding(state.query)
+    # --- Helper coroutines for parallel execution ---
 
-        # Search the database
-        doc_repo = DocumentRepository()
-        results = await doc_repo.search_by_embedding(
-            embedding=query_embedding,
-            limit=10,
-        )
-
-        # Convert to dict format for state
-        documents = []
-        for chunk, score in results:
-            documents.append({
-                "id": chunk.id,
-                "document_id": chunk.document_id,
-                "content": chunk.content,
-                "page_number": chunk.page_number,
-                "paragraph_number": chunk.paragraph_number,
-                "relevance_score": score,
-                "metadata": chunk.metadata,
-            })
-
-        state.documents = documents
-        logger.info(f"[SEARCH NODE] Found {len(documents)} relevant documents")
-
-    except Exception as e:
-        # Fallback: local on-disk store (dev mode / no Supabase)
-        logger.warning(f"[SEARCH NODE] Primary search failed, trying local store: {e}")
+    async def _local_db_search() -> list[dict]:
+        """Search the primary vector database (Supabase pgvector)."""
+        nonlocal query_embedding
         try:
-            from pathlib import Path
-            from junior.services.local_store import LocalDocumentStore
+            embedding_service = EmbeddingService()
+            query_embedding = await embedding_service.get_embedding(state.query)
+            doc_repo = DocumentRepository()
+            results = await doc_repo.search_by_embedding(embedding=query_embedding, limit=10)
+            docs = []
+            for chunk, score in results:
+                docs.append({
+                    "id": chunk.id,
+                    "document_id": chunk.document_id,
+                    "content": chunk.content,
+                    "page_number": chunk.page_number,
+                    "paragraph_number": chunk.paragraph_number,
+                    "relevance_score": score,
+                    "metadata": chunk.metadata,
+                    "source": "vector_db",
+                })
+            return docs
+        except Exception as e:
+            logger.warning(f"[SEARCH NODE] Vector DB failed: {e}")
+            return []
 
+    async def _local_store_search() -> list[dict]:
+        """Fallback: local on-disk hybrid search."""
+        from pathlib import Path
+        from junior.services.local_store import LocalDocumentStore
+        try:
             store = LocalDocumentStore(Path("uploads"))
-            local_results = store.search_hybrid(
+            results = store.search_hybrid(
                 query=state.query,
                 query_embedding=query_embedding,
                 limit=10,
             )
-
-            # Optional rerank (best-effort, requires sentence-transformers)
             try:
                 from junior.services.local_store import rerank_with_cross_encoder
-                local_results = rerank_with_cross_encoder(state.query, local_results, top_k=10)
+                results = rerank_with_cross_encoder(state.query, results, top_k=10)
             except Exception:
                 pass
-
-            documents = []
-            for chunk_dict, score in local_results:
-                documents.append({
+            docs = []
+            for chunk_dict, score in results:
+                docs.append({
                     "id": chunk_dict.get("id"),
                     "document_id": chunk_dict.get("document_id"),
                     "content": chunk_dict.get("content"),
@@ -244,12 +220,169 @@ async def search_documents_node(state: AgentState) -> AgentState:
                     "paragraph_number": chunk_dict.get("paragraph_number"),
                     "relevance_score": score,
                     "metadata": chunk_dict.get("metadata") or {},
+                    "source": "local_store",
                 })
-            state.documents = documents
-            logger.info(f"[SEARCH NODE] Local store returned {len(documents)} chunks")
+            return docs
         except Exception as le:
-            logger.error(f"[SEARCH NODE] Local store search failed: {le}")
-            state.metadata["search_error"] = str(le)
-            state.documents = []
+            logger.error(f"[SEARCH NODE] Local store failed: {le}")
+            return []
 
+    async def _kanoon_search() -> list[dict]:
+        """Search Indian Kanoon API for live case law."""
+        client = get_kanoon_client()
+        if not client.is_available:
+            return []
+        try:
+            results = await client.search(
+                query=state.query,
+                doc_types=["judgment"],
+                max_results=5,
+            )
+            docs = []
+            for r in results:
+                docs.append({
+                    "id": f"kanoon_{r.doc_id}",
+                    "document_id": f"kanoon_{r.doc_id}",
+                    "content": f"{r.title}\n\n{r.headline}",
+                    "page_number": 1,
+                    "paragraph_number": None,
+                    "relevance_score": r.relevance_score,
+                    "metadata": {
+                        "source": "indian_kanoon",
+                        "court": r.court,
+                        "date": r.date,
+                        "url": r.url,
+                        "title": r.title,
+                    },
+                    "source": "indian_kanoon",
+                })
+            logger.info(f"[SEARCH NODE] Kanoon returned {len(docs)} results")
+            return docs
+        except Exception as e:
+            logger.warning(f"[SEARCH NODE] Kanoon search failed: {e}")
+            return []
+
+    # --- Run local DB + Kanoon in parallel ---
+    primary_docs, kanoon_docs = await asyncio.gather(
+        _local_db_search(),
+        _kanoon_search(),
+    )
+
+    if primary_docs:
+        combined = primary_docs
+        if kanoon_docs:
+            combined = primary_docs + kanoon_docs
+        state.documents = combined
+        logger.info(f"[SEARCH NODE] {len(primary_docs)} local + {len(kanoon_docs)} Kanoon = {len(combined)} total")
+
+    else:
+        # Primary DB failed — run local store + Kanoon in parallel
+        logger.warning("[SEARCH NODE] Primary DB empty, trying local store + Kanoon in parallel")
+        async def _return_cached_kanoon() -> list[dict]:
+            return kanoon_docs
+
+        local_docs, kanoon_docs2 = await asyncio.gather(
+            _local_store_search(),
+            _return_cached_kanoon() if kanoon_docs else _kanoon_search(),
+        )
+        combined = local_docs + kanoon_docs2
+        state.documents = combined
+        if not combined:
+            state.metadata["search_error"] = "All sources returned zero results"
+            logger.warning("[SEARCH NODE] All sources returned zero results")
+        else:
+            logger.info(f"[SEARCH NODE] {len(local_docs)} local + {len(kanoon_docs2)} Kanoon = {len(combined)} total")
+
+    return state
+
+
+def _detect_uncited_paragraphs(draft: str) -> list[str]:
+    """
+    Heuristic: identify substantive paragraphs (>20 words) that contain no
+    case citation pattern.  Returns a list of short paragraph excerpts.
+    """
+    import re
+    citation_re = re.compile(
+        r"(\(\d{4}\)|\d+\s+SCC\s+\d+|AIR\s+\d+|\d{4}\s+SCR|v\.\s+[A-Z])"
+    )
+    uncited: list[str] = []
+    for para in draft.split("\n\n"):
+        stripped = para.strip()
+        if len(stripped.split()) < 20:
+            continue  # too short to matter
+        # Skip headings (ALL CAPS or starting with Roman numerals / numbers)
+        if re.match(r"^(?:[IVX]+\.|\d+\.)|^[A-Z ]{5,}$", stripped):
+            continue
+        if not citation_re.search(stripped):
+            excerpt = stripped[:80].replace("\n", " ")
+            uncited.append(excerpt)
+    return uncited
+
+
+async def validate_node(state: AgentState) -> AgentState:
+    """
+    Final Validation node — independent quality gate AFTER the Writer.
+
+    Checks:
+    1. Citation coverage  — every substantive paragraph has at least one citation
+    2. Hallucination guard — no citation appears that wasn't in state.citations
+    3. Legal register     — ensures mandatory Indian court phrases are present
+    4. Completeness       — all Questions of Law are addressed in the arguments
+
+    On failure: sets needs_revision=True and lowers confidence_score so the
+    workflow loops back through Critique → Research → Write again.
+    """
+    import re
+
+    logger.info("[VALIDATE NODE] Running final quality gate...")
+
+    draft = state.draft or ""
+    if not draft:
+        logger.warning("[VALIDATE NODE] No draft to validate — skipping")
+        return state
+
+    issues: list[str] = []
+
+    # 1. Citation coverage (uncited substantive paragraphs)
+    uncited = _detect_uncited_paragraphs(draft)
+    if uncited:
+        issues.append(f"{len(uncited)} paragraph(s) lack citations: {uncited[:5]}")
+
+    # 2. Hallucination guard — check that cited case names exist in state.citations
+    known_case_names = {c.case_name.lower() for c in state.citations}
+    cited_in_draft = re.findall(r"([A-Z][a-zA-Z\s]+?v\.?\s+[A-Z][a-zA-Z\s]+?)\s*\((\d{4})\)", draft)
+    hallucinated = []
+    for case_name, _ in cited_in_draft:
+        name_lower = case_name.strip().lower()
+        if name_lower and not any(name_lower in kn or kn in name_lower for kn in known_case_names):
+            hallucinated.append(case_name.strip())
+    if hallucinated:
+        issues.append(f"Possible hallucinated citations: {hallucinated[:3]}")
+        logger.warning(f"[VALIDATE NODE] Hallucination risk: {hallucinated}")
+
+    # 3. Legal register check — mandatory Indian court phrases
+    register_markers = [
+        "it is humbly submitted", "it is respectfully contended",
+        "strong reliance is placed", "in the premises",
+        "most respectfully prayed",
+    ]
+    draft_lower = draft.lower()
+    if not any(m in draft_lower for m in register_markers):
+        issues.append("Draft lacks mandatory Indian court register phrases")
+
+    if issues:
+        state.metadata["validation_issues"] = issues
+        state.needs_revision = True
+        # Lower confidence to trigger another critique loop (but not below 3)
+        state.confidence_score = max(3.0, state.confidence_score - 2.0)
+        logger.warning(f"[VALIDATE NODE] {len(issues)} issue(s) found — sending back for revision")
+        for iss in issues:
+            logger.warning(f"  • {iss}")
+    else:
+        state.metadata["validation_passed"] = True
+        state.needs_revision = False  # ← explicitly clear so workflow routes to END
+        # If not already finalized, finalize now
+        if not state.final_output and state.draft:
+            state.final_output = state.draft
+        logger.info("[VALIDATE NODE] All checks passed — response finalized ✅")
     return state

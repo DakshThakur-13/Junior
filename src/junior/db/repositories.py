@@ -1,8 +1,7 @@
-"""
-Database repositories for data access
-"""
+"""Database repositories for data access."""
 
-from datetime import datetime
+from datetime import datetime, timezone
+import re
 from typing import Any, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -69,8 +68,29 @@ def _vector_literal(vec: Optional[list[float]]) -> Optional[str]:
     return "[" + ",".join(str(float(x)) for x in vec) + "]"
 
 
+def _resize_embedding(vec: list[float], target_dim: int) -> list[float]:
+    if target_dim <= 0:
+        return vec
+    if len(vec) == target_dim:
+        return vec
+    if len(vec) > target_dim:
+        return vec[:target_dim]
+    return vec + [0.0] * (target_dim - len(vec))
+
+
+def _extract_mismatch_dims(message: str) -> Optional[tuple[int, int]]:
+    m = re.search(r"different vector dimensions\s+(\d+)\s+and\s+(\d+)", message, re.IGNORECASE)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
 def _token_count(text: str) -> int:
     return len((text or "").split())
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class BaseRepository:
@@ -90,23 +110,30 @@ class DocumentRepository(BaseRepository):
     async def create(self, document: LegalDocument) -> LegalDocument:
         """Create a new document"""
         document_id = (document.id or "").strip() or str(uuid4())
+        metadata = cast(dict[str, Any], document.metadata or {})
         data = {
             "id": document_id,
             "title": document.title,
-            # Supabase schema uses enum-like names (e.g. SUPREME_COURT)
             "court": document.court.name,
             "case_number": document.case_number,
-            # Supabase schema uses judgment_date (DATE), not date (TIMESTAMP)
             "judgment_date": document.date.date().isoformat(),
             "judges": document.judges,
             "parties": document.parties,
             "summary": document.summary,
             "full_text": document.full_text,
-            # Supabase schema uses legal_status + language enum-like names
             "legal_status": document.status.name,
             "language": document.language.name,
-            "metadata": document.metadata,
-            "created_at": datetime.utcnow().isoformat(),
+            "case_type": metadata.get("case_type"),
+            "filing_date": metadata.get("filing_date"),
+            "headnotes": metadata.get("headnotes"),
+            "source_url": metadata.get("source_url"),
+            "pdf_url": metadata.get("pdf_url"),
+            "doc_hash": metadata.get("doc_hash"),
+            "keywords": metadata.get("keywords") or [],
+            "legal_provisions": metadata.get("legal_provisions") or [],
+            "metadata": metadata,
+            "created_at": _utcnow_iso(),
+            "updated_at": _utcnow_iso(),
         }
 
         # Use upsert so re-ingestion refreshes metadata instead of duplicating.
@@ -128,8 +155,23 @@ class DocumentRepository(BaseRepository):
         doc_date = (
             datetime.fromisoformat(str(raw_date))
             if raw_date is not None
-            else datetime.utcnow()
+            else datetime.now(timezone.utc)
         )
+
+        metadata = cast(dict[str, Any], doc_data.get("metadata") or {})
+        metadata = {
+            **metadata,
+            "case_type": doc_data.get("case_type"),
+            "filing_date": doc_data.get("filing_date"),
+            "headnotes": doc_data.get("headnotes"),
+            "source_url": doc_data.get("source_url"),
+            "pdf_url": doc_data.get("pdf_url"),
+            "doc_hash": doc_data.get("doc_hash"),
+            "keywords": doc_data.get("keywords") or [],
+            "legal_provisions": doc_data.get("legal_provisions") or [],
+            "view_count": doc_data.get("view_count", 0),
+            "is_landmark": doc_data.get("is_landmark", False),
+        }
 
         return LegalDocument(
             id=str(doc_data["id"]),
@@ -147,7 +189,7 @@ class DocumentRepository(BaseRepository):
                 default=CaseStatus.GOOD_LAW,
             ),
             language=_parse_enum(Language, doc_data.get("language"), default=Language.ENGLISH),
-            metadata=cast(dict[str, Any], doc_data.get("metadata") or {}),
+            metadata=metadata,
         )
     
     async def search_by_embedding(
@@ -161,34 +203,45 @@ class DocumentRepository(BaseRepository):
         if not embedding:
             raise ValueError("Embedding must be a non-empty vector")
 
-        # Using Supabase's pgvector for similarity search
-        query = self.db.client.rpc(
-            "match_document_chunks",
-            {
-                # Supabase RPC can accept a JSON array for vector casting.
-                "query_embedding": embedding,
-                "match_threshold": threshold,
-                "match_count": limit,
-            }
-        )
-        
-        if court_filter:
-            courts = [c.name for c in court_filter]
-            # Note: Filtering would be handled in the RPC function
-        
-        result = query.execute()
+        params = {
+            "query_embedding": embedding,
+            "match_threshold": threshold,
+            "match_count": limit,
+            "filter_courts": [c.name for c in court_filter] if court_filter else None,
+        }
+
+        try:
+            result = self.db.client.rpc("match_document_chunks", params).execute()
+        except Exception as exc:
+            msg = str(exc)
+            dims = _extract_mismatch_dims(msg)
+            if not dims:
+                raise
+
+            db_dim, query_dim = dims
+            logger.warning(
+                f"Vector mismatch in Supabase search (db={db_dim}, query={query_dim}). Retrying with resized query embedding."
+            )
+
+            resized = _resize_embedding(embedding, db_dim)
+            params["query_embedding"] = resized
+            result = self.db.client.rpc("match_document_chunks", params).execute()
         
         chunks = []
         rows = cast(list[dict[str, Any]], result.data or [])
         for row in rows:
             chunk = DocumentChunk(
-                id=str(row["id"]),
+                id=str(row.get("id") or row.get("chunk_id")),
                 document_id=str(row["document_id"]),
                 content=str(row["content"]),
-                page_number=int(row["page_number"]),
+                page_number=int(row.get("page_number") or 1),
                 paragraph_number=cast(Optional[int], row.get("paragraph_number")),
                 metadata=cast(dict[str, Any], row.get("metadata") or {}),
             )
+            chunk.metadata.setdefault("title", row.get("title") or row.get("document_title") or "Unknown")
+            chunk.metadata.setdefault("case_number", row.get("case_number"))
+            chunk.metadata.setdefault("court", row.get("court"))
+            chunk.metadata.setdefault("judgment_date", row.get("judgment_date"))
             chunks.append((chunk, float(row["similarity"])))
         
         return chunks
@@ -216,7 +269,7 @@ class DocumentRepository(BaseRepository):
             "token_count": token_count,
             "embedding": _vector_literal(chunk.embedding),
             "metadata": chunk.metadata,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _utcnow_iso(),
         }
 
         # Upsert so re-ingestion fills missing embeddings instead of duplicating.
@@ -234,8 +287,8 @@ class ChatRepository(BaseRepository):
             "id": session_id,
             "user_id": user_id,
             "title": title or "New Research Session",
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": _utcnow_iso(),
+            "updated_at": _utcnow_iso(),
         }
         
         self.db.chat_sessions.insert(data).execute()
@@ -259,14 +312,16 @@ class ChatRepository(BaseRepository):
             "content": content,
             "citations": citations or [],
             "metadata": metadata or {},
-            "created_at": datetime.utcnow().isoformat(),
+            "translations": {},
+            "token_count": _token_count(content),
+            "created_at": _utcnow_iso(),
         }
         
         self.db.chat_messages.insert(data).execute()
         
         # Update session's updated_at
         self.db.chat_sessions.update(
-            {"updated_at": datetime.utcnow().isoformat()}
+            {"updated_at": _utcnow_iso()}
         ).eq("id", session_id).execute()
         
         return data
@@ -309,9 +364,10 @@ class UserRepository(BaseRepository):
             "id": user_id,
             "email": email,
             "name": name,
-            "preferred_language": preferred_language.value,
+            "preferred_language": preferred_language.name,
             "settings": {},
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": _utcnow_iso(),
+            "updated_at": _utcnow_iso(),
         }
         
         self.db.users.insert(data).execute()
@@ -321,7 +377,7 @@ class UserRepository(BaseRepository):
     async def update_settings(self, user_id: str, settings: dict[str, Any]) -> dict[str, Any]:
         """Update user settings"""
         result = self.db.users.update(
-            {"settings": settings, "updated_at": datetime.utcnow().isoformat()}
+            {"settings": settings, "updated_at": _utcnow_iso()}
         ).eq("id", user_id).execute()
         
         data_list = cast(list[dict[str, Any]], result.data or [])

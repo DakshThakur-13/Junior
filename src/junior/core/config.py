@@ -24,9 +24,8 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
     model_config = SettingsConfigDict(
-        # Prefer repo-root `.env` regardless of current working directory.
-        # Keep `.env` as a fallback for unusual run layouts.
-        env_file=(str(_ENV_FILE), ".env"),
+        # Keep class defaults deterministic. Environment loading is applied in
+        # get_settings() via explicit _env_file override.
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -87,6 +86,7 @@ class Settings(BaseSettings):
     
     # Embeddings - Upgraded to multilingual
     embedding_model: str = "BAAI/bge-m3"  # Multilingual + Hybrid search
+    embedding_dimension: int = 1024
     reranker_model: str = "BAAI/bge-reranker-v2-m3"  # Precision boost
 
     # When false, Junior will NOT attempt to download embedding models from Hugging Face Hub.
@@ -114,6 +114,18 @@ class Settings(BaseSettings):
     whisper_model_size: str = "base"  # tiny|base|small|medium|large-v3 (depends on faster-whisper availability)
     audio_max_bytes: int = 25_000_000
 
+    # Indian Kanoon API (free for research use)
+    # Get your key at: https://api.indiankanoon.org/
+    indian_kanoon_api_key: str = Field(default="")
+
+    # OpenRouter API — access 100+ models via OpenAI-compatible API
+    # Get a free key at: https://openrouter.ai/keys
+    openrouter_api_key: str = Field(default="")
+
+    # Translator model/provider (used by ModelRouter for TRANSLATOR purpose)
+    translator_model: str = Field(default="qwen/qwen-2.5-72b-instruct")
+    translator_provider: str = Field(default="openrouter")
+
     @property
     def supported_languages_list(self) -> list[str]:
         """Get supported languages as a list"""
@@ -132,7 +144,7 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance"""
-    return Settings()
+    return Settings(_env_file=(str(_ENV_FILE), ".env"))
 
 # Global settings instance
 settings = get_settings()

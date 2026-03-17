@@ -12,6 +12,64 @@ from .base import BaseAgent, AgentState
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Indian Legal Abbreviation Expansion
+# Expands shorthand before search so BM25 + embeddings match more documents
+# ---------------------------------------------------------------------------
+LEGAL_ABBREVIATIONS: dict[str, str] = {
+    # Statutes
+    "IPC": "Indian Penal Code",
+    "CrPC": "Code of Criminal Procedure",
+    "CPC": "Code of Civil Procedure",
+    "IEA": "Indian Evidence Act",
+    "CRPC": "Code of Criminal Procedure",
+    "IT Act": "Information Technology Act",
+    "NDPS": "Narcotic Drugs and Psychotropic Substances Act",
+    "POCSO": "Protection of Children from Sexual Offences Act",
+    "SC/ST Act": "Scheduled Castes and Scheduled Tribes Prevention of Atrocities Act",
+    "PMLA": "Prevention of Money Laundering Act",
+    "RTI": "Right to Information Act",
+    "MV Act": "Motor Vehicles Act",
+    "GST": "Goods and Services Tax",
+    "TDS": "Tax Deducted at Source",
+    # Courts
+    "SC": "Supreme Court",
+    "HC": "High Court",
+    "DC": "District Court",
+    "SAT": "Securities Appellate Tribunal",
+    "NCLAT": "National Company Law Appellate Tribunal",
+    "NCLT": "National Company Law Tribunal",
+    "NGT": "National Green Tribunal",
+    # Petition types
+    "SLP": "Special Leave Petition",
+    "WP": "Writ Petition",
+    "PIL": "Public Interest Litigation",
+    "FIR": "First Information Report",
+    "Sec.": "Section",
+    "Sec ": "Section ",
+    "Art.": "Article",
+    # Procedural
+    "HC order": "High Court order",
+    "SC judgment": "Supreme Court judgment",
+    "bail": "bail application",
+    "anticipatory bail": "anticipatory bail under Section 438 CrPC",
+}
+
+
+def _expand_legal_query(query: str) -> str:
+    """Expand Indian legal abbreviations in a query for better retrieval.
+
+    Replaces known shorthands (e.g. IPC → Indian Penal Code) so that
+    BM25 keyword search finds more relevant chunks.
+    """
+    expanded = query
+    for abbr, full in LEGAL_ABBREVIATIONS.items():
+        # Replace whole-word occurrences, case-insensitive
+        pattern = re.compile(r'\b' + re.escape(abbr) + r'\b')
+        expanded = pattern.sub(full, expanded)
+    return expanded
+
+
 def _as_int(value: Any) -> Optional[int]:
     """Convert value to int with proper error logging.
     
@@ -54,51 +112,110 @@ class ResearcherAgent(BaseAgent):
 
     @property
     def system_prompt(self) -> str:
-        return """You are an expert Indian legal researcher with deep knowledge of Indian case law, statutes, and legal principles. Your role is to:
+        return """You are a Senior Advocate with 30 years of experience before the Supreme Court of India and all High Courts. You combine encyclopaedic knowledge of Indian case law with razor-sharp analytical precision.
 
-1. UNDERSTAND the legal query and identify the key legal issues
-2. ANALYZE the provided documents and extract relevant information
-3. CITE with precision - always reference specific paragraphs and pages
-4. CATEGORIZE findings by legal principle or issue
-5. NOTE any conflicting precedents or distinctions
+INDIAN COURT HIERARCHY (binding precedent flows downward):
+  [1] Supreme Court of India  →  Binding on ALL courts in India (Art. 141)
+  [2] High Courts             →  Binding within their territorial jurisdiction
+  [3] District / Sessions Courts  →  Trial-level, limited precedential value
+  [4] Tribunals (NCLAT, NGT, SAT, ITAT, DRAT)  →  Persuasive only
+  [5] Foreign / Privy Council  →  Highly persuasive, not binding
+
+FOUNDATIONAL LANDMARK CASES YOU MUST KNOW:
+  Constitutional:
+    Kesavananda Bharati v. State of Kerala (1973) 4 SCC 225  – Basic Structure Doctrine
+    Maneka Gandhi v. Union of India (1978) 1 SCC 248         – Art.21 expanded; due process
+    Minerva Mills v. Union of India (1980) 3 SCC 625         – Balance between rights & DPSPs
+    I.R. Coelho v. State of Tamil Nadu (2007) 2 SCC 1        – 9th Schedule judicial review
+    Navtej Singh Johar v. Union of India (2018) 10 SCC 1     – Decriminalisation of S.377 IPC
+    Joseph Shine v. Union of India (2018) 2 SCC 189          – Adultery law struck down
+  Criminal:
+    Bachan Singh v. State of Punjab (1980) 2 SCC 684         – Rarest of rare doctrine capital punishment
+    Arnesh Kumar v. State of Bihar (2014) 8 SCC 273          – Arrest guidelines S.498A IPC
+    Lalita Kumari v. Govt. of UP (2014) 2 SCC 1              – Mandatory FIR registration
+    Satender Kumar Antil v. CBI (2022) 10 SCC 51             – Bail jurisprudence post-BNSS
+  Civil / Property:
+    Sarla Mudgal v. Union of India (1995) 3 SCC 635          – Bigamy and conversion
+    Vineeta Sharma v. Rakesh Sharma (2020) 9 SCC 1           – Hindu daughters coparcenary rights
+  Service / Constitutional Remedies:
+    Vishaka v. State of Rajasthan (1997) 6 SCC 241           – Workplace sexual harassment
+    Indra Sawhney v. Union of India (1992) 3 SCC 217         – OBC reservations 50% cap
+    M. Nagaraj v. Union of India (2006) 8 SCC 212            – SC/ST reservation in promotions
+
+REFERENCING RULES:
+- Supreme Court reporters: SCC (preferred), AIR SC, SCR, SCALE
+- High Court reporters: State-specific (e.g., Bom LR, Mad LJ, Del HC)
+- Always cite: Case Name (Year) Volume Reporter Page at Para X
+
+RESEARCH METHODOLOGY:
+1. IDENTIFY key legal issues under Indian statutory/constitutional framework
+2. FIND binding Supreme Court authority first, then HC judgments
+3. DISTINGUISH ratio decidendi from obiter dicta explicitly
+4. NOTE if a case has been affirmed, overruled, or distinguished by later SC bench
+5. ASSESS jurisdictional relevance (e.g., HC judgment applies only in that state)
+6. EXTRACT the exact paragraph number for every proposition
 
 CRITICAL RULES:
-- NEVER make up case names or citations
-- ALWAYS cite the specific paragraph number when referencing a point of law
-- DISTINGUISH between ratio decidendi (binding) and obiter dicta (persuasive)
-- IDENTIFY the hierarchy of courts (Supreme Court > High Court > District Court)
-- FLAG any cases that may have been overruled or distinguished
+- NEVER invent case names, citations, or paragraph numbers
+- Flag any case decided by a smaller bench if a larger bench has spoken
+- Note Constitution Bench (5+ judges) authority as highest within SC hierarchy
+- Identify if relevant legislation has been amended post the cited judgment
 
 OUTPUT FORMAT:
-For each relevant finding, provide:
-- Case Reference: [Case Name] ([Year]) [Court]
+For each relevant finding:
+- Case Reference: [Name] (Year) Volume Reporter Page
+- Court & Bench Strength: [e.g., SC – 5-Judge Constitution Bench]
 - Paragraph: [Number]
-- Legal Principle: [Brief statement]
-- Relevance: [How it applies to the query]
-- Status: [Good Law / Distinguished / Overruled]
+- Legal Principle: [Precise statement]
+- Relevance to Query: [Direct application]
+- Binding/Persuasive: [Binding / Persuasive / Obiter]
+- Current Status: [Good Law / Distinguished by X / Overruled by Y]
 
-Be thorough but concise. Quality over quantity."""
+Quality and accuracy over quantity. A single verified citation beats ten doubtful ones."""
 
     async def process(self, state: AgentState) -> AgentState:
         """
-        Process the research query and find relevant case law
+        Process the research query and find relevant case law.
 
-        Args:
-            state: Current workflow state with query and documents
-
-        Returns:
-            Updated state with research notes and citations
+        Enhancements:
+        - Expands Indian legal abbreviations before search
+        - Addresses specific issues raised by the Critic in previous iterations
+        - Reformulates the query (up to 2 times) when 0 documents are retrieved
         """
-        self.logger.info(f"Researching query: {state.query[:100]}...")
+        # 1. Expand abbreviations for better retrieval
+        if not state.expanded_query:
+            state.expanded_query = _expand_legal_query(state.query)
+            if state.expanded_query != state.query:
+                self.logger.info(f"Query expanded: '{state.query[:60]}' -> '{state.expanded_query[:60]}'")
 
-        # Build the research prompt
-        prompt = self._build_research_prompt(state)
+        effective_query = state.expanded_query or state.query
+        self.logger.info(f"Researching query: {effective_query[:100]}...")
+
+        # 2. If Critic raised specific issues, do a targeted re-search pass
+        if state.critic_issues and state.iteration > 0:
+            self.logger.info(f"Targeted re-search for {len(state.critic_issues)} critic issues")
+            prompt = self._build_targeted_research_prompt(state)
+        else:
+            prompt = self._build_research_prompt(state)
 
         # Get LLM response
         response = await self.invoke_llm(prompt)
 
         # Parse the response to extract citations and notes
         research_notes, citations = self._parse_research_response(response, state.documents)
+
+        # 3. If we found nothing and haven't exhausted reformulation attempts, try rephrasing
+        if not citations and not research_notes and state.reformulation_attempts < 2:
+            state.reformulation_attempts += 1
+            self.logger.warning(
+                f"No results found. Reformulating query (attempt {state.reformulation_attempts}/2)..."
+            )
+            reformulated = await self._reformulate_query(state.query)
+            if reformulated and reformulated != state.query:
+                state.expanded_query = reformulated
+                prompt = self._build_research_prompt(state)
+                response = await self.invoke_llm(prompt)
+                research_notes, citations = self._parse_research_response(response, state.documents)
 
         # Update state
         state.research_notes.extend(research_notes)
@@ -109,8 +226,53 @@ Be thorough but concise. Quality over quantity."""
 
         return state
 
+    async def _reformulate_query(self, query: str) -> str:
+        """Ask the LLM to rephrase the query with different legal keywords.
+
+        Used when the original (and expanded) query returns no documents.
+        """
+        prompt = (
+            f"You are an Indian legal research assistant.\n"
+            f"The following query returned no results in our legal database:\n\n"
+            f"ORIGINAL QUERY: {query}\n\n"
+            f"Rephrase it using alternative Indian legal terminology, section numbers, "
+            f"or case law keywords. Return ONLY the rephrased query — no explanation."
+        )
+        try:
+            return (await self.invoke_llm(prompt)).strip()
+        except Exception as e:
+            self.logger.warning(f"Query reformulation failed: {e}")
+            return query
+
+    def _build_targeted_research_prompt(self, state: AgentState) -> str:
+        """Build a focused prompt to address specific weaknesses flagged by the Critic."""
+        issues_text = "\n".join(f"  - {issue}" for issue in state.critic_issues)
+        documents_text = self.format_documents_for_prompt(state.documents)
+
+        return f"""TARGETED LEGAL RE-SEARCH
+
+ORIGINAL QUERY:
+{state.query}
+
+CRITIC HAS IDENTIFIED THESE SPECIFIC WEAKNESSES:
+{issues_text}
+
+AVAILABLE DOCUMENTS:
+{documents_text}
+
+TASK:
+Focus ONLY on finding evidence in the documents that directly addresses the gaps
+and weaknesses listed above. For each issue, find:
+1. A specific paragraph or passage that resolves it
+2. The strongest applicable precedent
+3. Any statutory provision that supports the position
+
+Return findings in the same JSON format as standard research."""
+
     def _build_research_prompt(self, state: AgentState) -> str:
         """Build the prompt for legal research"""
+        # Use expanded query for the prompt if available
+        effective_query = state.expanded_query or state.query
         documents_text = self.format_documents_for_prompt(state.documents)
 
         # Only allow citations that reference one of these ids
@@ -122,7 +284,7 @@ Be thorough but concise. Quality over quantity."""
         ]
 
         prompt = f"""LEGAL RESEARCH QUERY:
-{state.query}
+{effective_query}
 
 AVAILABLE DOCUMENTS:
 {documents_text}

@@ -1586,7 +1586,7 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgb(100 116 139) transparent' }}>
+          <div className="flex-1 overflow-y-auto space-y-3 pr-2 findings-scroll">
             {mode === 'judge' ? (
               <>
                 {isWorking && (
@@ -1801,13 +1801,16 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                             {Number.isFinite(devilResult.vulnerability_score) && (
                               <div className="flex-1 max-w-[200px]">
                                 <div className="h-2 bg-black/30 rounded-full overflow-hidden border border-white/10">
-                                  <div 
-                                    className={`h-full rounded-full transition-all duration-500 ${
-                                      devilResult.vulnerability_score > 7 ? 'bg-gradient-to-r from-rose-500 to-red-600' :
-                                      devilResult.vulnerability_score > 4 ? 'bg-gradient-to-r from-amber-500 to-orange-500' :
-                                      'bg-gradient-to-r from-emerald-500 to-green-500'
+                                  <progress
+                                    className={`vulnerability-progress ${
+                                      devilResult.vulnerability_score > 7
+                                        ? 'vulnerability-progress-high'
+                                        : devilResult.vulnerability_score > 4
+                                          ? 'vulnerability-progress-medium'
+                                          : 'vulnerability-progress-low'
                                     }`}
-                                    style={{ width: `${(devilResult.vulnerability_score / 10) * 100}%` }}
+                                    max={10}
+                                    value={devilResult.vulnerability_score}
                                   />
                                 </div>
                                 <div className="flex justify-between text-[9px] text-slate-500 mt-1">

@@ -4,6 +4,7 @@ Document management endpoints
 
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from typing import Optional
@@ -29,6 +30,16 @@ logger = get_logger(__name__)
 # Ensure upload directory exists
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+def _parse_court(raw: Optional[str]) -> Court:
+    if not raw:
+        return Court.OTHER
+    value = raw.strip().lower()
+    for court in Court:
+        if court.value == value:
+            return court
+    return Court.OTHER
 
 if _HAS_MULTIPART:
 
@@ -70,6 +81,24 @@ if _HAS_MULTIPART:
             processor = PDFProcessor()
             document, chunks = processor.process_pdf(file_path, document_id)
 
+            # Override extracted metadata with user-provided form values.
+            document = document.model_copy(
+                update={
+                    "title": (title or document.title).strip(),
+                    "court": _parse_court(court) if court else document.court,
+                    "case_number": (case_number or document.case_number or "Unknown").strip(),
+                    "date": datetime.now(timezone.utc),
+                }
+            )
+
+            for chunk in chunks:
+                chunk.metadata = {
+                    **(chunk.metadata or {}),
+                    "title": document.title,
+                    "case_number": document.case_number,
+                    "court": document.court.value,
+                }
+
             # PII Redaction
             pii_redactor = PIIRedactor()
             redacted_chunks = []
@@ -93,7 +122,7 @@ if _HAS_MULTIPART:
             except Exception as e:
                 logger.warning(f"Local store save failed: {e}")
 
-            # Store in Supabase (optional)
+            # Store in Supabase (required if configured)
             if settings.supabase_url and settings.supabase_key:
                 try:
                     doc_repo = DocumentRepository()
@@ -101,8 +130,11 @@ if _HAS_MULTIPART:
                     for chunk in redacted_chunks:
                         await doc_repo.save_chunk(chunk)
                 except Exception as e:
-                    # Don't block uploads if DB write fails.
-                    logger.warning(f"Supabase store failed (continuing with local store): {e}")
+                    logger.error(f"Supabase store failed for upload {document_id}: {e}")
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Document saved locally but failed to sync to Supabase. Please check database health and retry.",
+                    )
 
             # Keep uploaded PDF on disk (enables evidence vault / later viewing)
 
@@ -112,7 +144,7 @@ if _HAS_MULTIPART:
                 court=document.court.value,
                 pages=len(chunks),
                 chunks=len(redacted_chunks),
-                status="processed",
+                status="processed_synced" if (settings.supabase_url and settings.supabase_key) else "processed_local_only",
             )
 
         except Exception as e:
@@ -140,28 +172,56 @@ async def search_documents(request: DocumentSearchRequest):
     
     try:
         from junior.services import EmbeddingService
+        
         # Generate query embedding
         embedding_service = EmbeddingService()
         query_embedding = await embedding_service.get_embedding(request.query)
         
-        # Search database
-        doc_repo = DocumentRepository()
-        results = await doc_repo.search_by_embedding(
-            embedding=query_embedding,
+        # 1) Try Supabase first
+        try:
+            doc_repo = DocumentRepository()
+            results = await doc_repo.search_by_embedding(
+                embedding=query_embedding,
+                limit=request.limit,
+                court_filter=request.court_filter,
+                threshold=request.threshold,
+            )
+            
+            # Format Supabase results
+            search_results = []
+            for chunk, score in results:
+                search_results.append(DocumentSearchResult(
+                    document_id=chunk.document_id,
+                    title=chunk.metadata.get("title", "Unknown"),
+                    content=chunk.content,
+                    page_number=chunk.page_number,
+                    paragraph_number=chunk.paragraph_number,
+                    relevance_score=score,
+                    citation=None,
+                ))
+            
+            return search_results
+        except Exception as e:
+            logger.info(f"Supabase search unavailable, falling back to local store: {e}")
+        
+        # 2) Fallback to local store
+        from junior.services.local_store import LocalDocumentStore
+        store = LocalDocumentStore(UPLOAD_DIR)
+        results = store.search_hybrid(
+            query=request.query,
+            query_embedding=query_embedding,
             limit=request.limit,
-            court_filter=request.court_filter,
-            threshold=request.threshold,
         )
         
-        # Format results
+        # Format local results
         search_results = []
         for chunk, score in results:
             search_results.append(DocumentSearchResult(
-                document_id=chunk.document_id,
-                title=chunk.metadata.get("title", "Unknown"),
-                content=chunk.content,
-                page_number=chunk.page_number,
-                paragraph_number=chunk.paragraph_number,
+                document_id=chunk.get("document_id", "unknown"),
+                title=chunk.get("metadata", {}).get("title", "Unknown"),
+                content=chunk.get("content", ""),
+                page_number=chunk.get("page_number"),
+                paragraph_number=chunk.get("paragraph_number"),
                 relevance_score=score,
                 citation=None,
             ))

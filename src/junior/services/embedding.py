@@ -16,6 +16,7 @@ class EmbeddingService:
 
     def __init__(self, model_name: Optional[str] = None):
         self.model_name = model_name or settings.embedding_model
+        self.target_dimension = int(getattr(settings, "embedding_dimension", 1024) or 1024)
         self._client = None
 
     @property
@@ -48,7 +49,7 @@ class EmbeddingService:
             # Using Groq/OpenAI compatible API
             # Note: Groq may not have embedding API, using placeholder
             embedding = await self._get_embedding_from_api(text)
-            return embedding
+            return self._normalize_dimension(embedding)
         except Exception as e:
             logger.error(f"Embedding API error: {e}")
             # Fallback to simple hash-based embedding (for testing)
@@ -113,9 +114,9 @@ class EmbeddingService:
         # Create deterministic embedding from text hash
         hash_bytes = hashlib.sha512(text.encode()).digest()
 
-        # Expand to 1536 dimensions
+        # Expand to configured embedding dimensions
         np.random.seed(int.from_bytes(hash_bytes[:4], 'big'))
-        embedding = np.random.randn(1536).tolist()
+        embedding = np.random.randn(self.target_dimension).tolist()
 
         # Normalize
         norm = np.linalg.norm(embedding)
@@ -123,6 +124,26 @@ class EmbeddingService:
 
         logger.warning("Using fallback embedding - not suitable for production")
         return embedding
+
+    def _normalize_dimension(self, embedding: list[float]) -> list[float]:
+        """Pad or truncate vectors to the configured dimensionality."""
+        if not embedding:
+            return [0.0] * self.target_dimension
+
+        current = len(embedding)
+        if current == self.target_dimension:
+            return embedding
+
+        if current > self.target_dimension:
+            logger.warning(
+                f"Embedding dimension {current} > target {self.target_dimension}; truncating vector"
+            )
+            return embedding[: self.target_dimension]
+
+        logger.warning(
+            f"Embedding dimension {current} < target {self.target_dimension}; zero-padding vector"
+        )
+        return embedding + [0.0] * (self.target_dimension - current)
 
     async def get_batch_embeddings(self, texts: list[str]) -> list[list[float]]:
         """

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './ResearchPanel.css';
 import {
   AlertTriangle,
@@ -8,7 +8,10 @@ import {
   X,
   Clock,
   Bookmark,
-  ExternalLink
+  ExternalLink,
+  Eye,
+  Loader2,
+  Trash2
 } from 'lucide-react';
 
 export type ResearchItem = {
@@ -19,13 +22,60 @@ export type ResearchItem = {
   source?: string;
   url?: string;
   publisher?: string;
-  authority?: 'official' | 'study' | string;
+  authority?: 'official' | 'study' | 'web' | string;
   tags?: string[];
   size?: string;
   date?: string;
+  score?: number;
 };
 
 type Category = 'all' | 'case-law' | 'acts' | 'official' | 'study';
+
+type SourcePreview = {
+  title: string;
+  content: string;
+  full_text_length: number;
+  error?: string | null;
+  summary_ai?: string;
+  key_points?: string[];
+  quotes?: string[];
+};
+
+type GroupKey = 'case-law' | 'acts' | 'official' | 'study' | 'web';
+
+const GROUP_META: Record<GroupKey, { label: string; hint: string }> = {
+  'case-law': { label: 'Case Law & Judgments', hint: 'Precedents from courts and legal reporters' },
+  acts: { label: 'Acts, Codes & Statutes', hint: 'Bare acts, sections, codes, and statutory law' },
+  official: { label: 'Official Government Sources', hint: 'Government and court portals' },
+  study: { label: 'Commentary & Study Material', hint: 'Articles, explainers, and legal commentary' },
+  web: { label: 'General Web Results', hint: 'Additional internet sources' },
+};
+
+function classifyGroup(item: ResearchItem): GroupKey {
+  const t = (item.type || '').toLowerCase();
+  const a = (item.authority || '').toLowerCase();
+  if (t === 'precedent') return 'case-law';
+  if (t === 'act' || t === 'constitution' || t === 'law') return 'acts';
+  if (a === 'official' || t === 'official') return 'official';
+  if (a === 'study' || t === 'study') return 'study';
+  return 'web';
+}
+
+function sanitizeTitle(title: string): string {
+  if (!title) return 'Untitled';
+  // Remove common junk patterns
+  let cleaned = title
+    .replace(/^(robbery|.*? v\.\s+\w+)/i, (match) => match) // keep case names
+    .replace(/\bdoctypes?\s*[:=]\s*\w+/gi, '') // remove doctypes:xxx
+    .replace(/\bfiletype\s*[:=]\s*\w+/gi, '') // remove filetype:xxx
+    .replace(/site:\S+/gi, '') // remove site: operators
+    .replace(/\s{2,}/g, ' ') // collapse multiple spaces
+    .trim();
+  // Remove trailing technical junk
+  cleaned = cleaned.replace(/\s*\(.*?(pdf|docx?|zip|archive).*?\)\s*$/i, '').trim();
+  // If too short after cleaning, return original
+  return cleaned && cleaned.length > 5 ? cleaned : title;
+}
 
 export function ResearchPanel(props: {
   isOpen: boolean;
@@ -38,6 +88,8 @@ export function ResearchPanel(props: {
   const [items, setItems] = useState<ResearchItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [searchTimeMs, setSearchTimeMs] = useState(0);
 
   // UI State
   const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
@@ -45,6 +97,16 @@ export function ResearchPanel(props: {
   const [showHistory, setShowHistory] = useState(false);
   const [citationChecks, setCitationChecks] = useState<Record<string, { status: string; emoji: string; message: string }>>({});
   const [checkingCitation, setCheckingCitation] = useState<string | null>(null);
+  const [selectedPreviewItem, setSelectedPreviewItem] = useState<ResearchItem | null>(null);
+  const [previewState, setPreviewState] = useState<
+    | { status: 'idle' }
+    | { status: 'loading'; url: string }
+    | { status: 'ok'; url: string; data: SourcePreview }
+    | { status: 'error'; url: string; message: string }
+  >({ status: 'idle' });
+  const previewCacheRef = useRef<Map<string, { kind: 'ok'; data: SourcePreview } | { kind: 'error'; message: string }>>(
+    new Map()
+  );
 
   // Pagination State
   const [displayLimit, setDisplayLimit] = useState(50);
@@ -110,6 +172,8 @@ export function ResearchPanel(props: {
           const results = data.results || (Array.isArray(data) ? data : []);
           console.log('Search results:', results);
           setItems(results);
+          setTotalCount(data.total_count ?? results.length);
+          setSearchTimeMs(data.search_time_ms ?? 0);
           
           // Reset display limit and check if more results available
           setDisplayLimit(50);
@@ -193,6 +257,82 @@ export function ResearchPanel(props: {
     });
   };
 
+  // Remove from search history
+  const removeFromHistory = (e: React.MouseEvent, historyItem: string) => {
+    e.stopPropagation();
+    setSearchHistory(prev => prev.filter(h => h !== historyItem));
+    localStorage.setItem('jr_research_history', JSON.stringify(searchHistory.filter(h => h !== historyItem)));
+  };
+
+  const visibleItems = useMemo(() => items.slice(0, displayLimit), [items, displayLimit]);
+
+  const groupedResults = useMemo(() => {
+    const groups: Record<GroupKey, ResearchItem[]> = {
+      'case-law': [],
+      acts: [],
+      official: [],
+      study: [],
+      web: [],
+    };
+
+    for (const item of visibleItems) {
+      groups[classifyGroup(item)].push(item);
+    }
+
+    const ordered: Array<{ key: GroupKey; items: ResearchItem[] }> = [
+      { key: 'case-law', items: groups['case-law'] },
+      { key: 'acts', items: groups.acts },
+      { key: 'official', items: groups.official },
+      { key: 'study', items: groups.study },
+      { key: 'web', items: groups.web },
+    ];
+
+    return ordered.filter((g) => g.items.length > 0);
+  }, [visibleItems]);
+
+  const handlePreview = async (e: React.MouseEvent, item: ResearchItem) => {
+    e.stopPropagation();
+    if (!item.url) return;
+
+    setSelectedPreviewItem(item);
+
+    const cached = previewCacheRef.current.get(item.url);
+    if (cached?.kind === 'ok') {
+      setPreviewState({ status: 'ok', url: item.url, data: cached.data });
+      return;
+    }
+    if (cached?.kind === 'error') {
+      setPreviewState({ status: 'error', url: item.url, message: cached.message });
+      return;
+    }
+
+    setPreviewState({ status: 'loading', url: item.url });
+    try {
+      const res = await fetch('/api/v1/research/sources/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: item.url }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || `Preview error: ${res.status}`);
+      }
+      const data = (await res.json()) as SourcePreview;
+      if (data?.error) {
+        previewCacheRef.current.set(item.url, { kind: 'error', message: data.error });
+        setPreviewState({ status: 'error', url: item.url, message: data.error });
+        return;
+      }
+
+      previewCacheRef.current.set(item.url, { kind: 'ok', data });
+      setPreviewState({ status: 'ok', url: item.url, data });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Preview failed';
+      previewCacheRef.current.set(item.url, { kind: 'error', message });
+      setPreviewState({ status: 'error', url: item.url, message });
+    }
+  };
+
   if (!props.isOpen) return null;
 
   return (
@@ -241,14 +381,22 @@ export function ResearchPanel(props: {
             <div className="absolute top-full left-0 right-0 mt-1 bg-legal-surface border border-white/10 rounded-lg shadow-xl z-50 overflow-hidden">
               <div className="px-3 py-2 text-[10px] text-slate-500 border-b border-white/10">Recent Searches</div>
               {searchHistory.map((h, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setQuery(h)}
-                  className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-white/5 transition-colors flex items-center gap-2"
-                >
-                  <Clock size={12} className="text-slate-500" />
-                  {h}
-                </button>
+                <div key={idx} className="flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors group">
+                  <button
+                    onClick={() => setQuery(h)}
+                    className="flex-1 text-left text-xs text-slate-300 flex items-center gap-2"
+                  >
+                    <Clock size={12} className="text-slate-500 flex-shrink-0" />
+                    <span className="truncate">{h}</span>
+                  </button>
+                  <button
+                    onClick={(e) => removeFromHistory(e, h)}
+                    className="p-1 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                    title="Remove from history"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -283,11 +431,12 @@ export function ResearchPanel(props: {
             <span className="text-slate-500">
               {displayLimit < items.length ? (
                 <>
-                  Showing <span className="text-legal-gold font-semibold">{displayLimit}</span> of <span className="text-legal-gold font-semibold">{items.length}</span> result{items.length === 1 ? '' : 's'}
+                  Showing <span className="text-legal-gold font-semibold">{displayLimit}</span> of <span className="text-legal-gold font-semibold">{totalCount}</span> result{totalCount === 1 ? '' : 's'}
                 </>
               ) : (
                 <>
-                  Found <span className="text-legal-gold font-semibold">{items.length}</span> resource{items.length === 1 ? '' : 's'}
+                  Found <span className="text-legal-gold font-semibold">{totalCount}</span> result{totalCount === 1 ? '' : 's'}
+                  {searchTimeMs > 0 && <span className="text-slate-600 ml-1">({(searchTimeMs / 1000).toFixed(2)}s)</span>}
                 </>
               )}
             </span>
@@ -309,8 +458,12 @@ export function ResearchPanel(props: {
                 <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-b-legal-gold/40 rounded-full animate-spin reverse-spin" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium text-legal-text mb-1">Searching Legal Sources</p>
-                <p className="text-[11px] text-slate-500">Scanning databases & case law...</p>
+                <p className="text-sm font-medium text-legal-text mb-1">
+                  {query ? 'Searching the Internet...' : 'Loading Sources...'}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {query ? `Finding results for "${query}"` : 'Scanning legal databases...'}
+                </p>
               </div>
             </div>
           </div>
@@ -332,16 +485,16 @@ export function ResearchPanel(props: {
               <Search className="text-legal-gold" size={28} />
             </div>
             <p className="text-sm font-medium text-slate-300 text-center mb-2">
-              {query ? 'No Results Found' : 'Start Your Legal Research'}
+              {query ? 'No Results Found' : 'Search the Internet'}
             </p>
             <p className="text-[11px] text-slate-500 text-center leading-relaxed max-w-xs">
               {query 
-                ? 'Try different keywords or check spelling. We search across official Indian legal databases.'
-                : 'Search for cases, acts, judgments, or legal topics from trusted Indian legal sources.'}
+                ? `No results found for "${query}". Try different keywords or broader terms.`
+                : 'Type anything to search the web — cases, laws, legal topics, definitions, news and more.'}
             </p>
             {!query && (
               <div className="mt-6 flex flex-wrap gap-2 justify-center">
-                {['IPC Section 302', 'Contract Act', 'Supreme Court', 'Article 21'].map((suggestion) => (
+                {['IPC Section 302', 'how to file FIR', 'bail conditions India', 'Article 21 RTL', 'consumer complaint process'].map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => setQuery(suggestion)}
@@ -357,8 +510,20 @@ export function ResearchPanel(props: {
 
         {/* Results Grid */}
         {!isLoading && items.length > 0 && (
-          <div className="space-y-3">
-            {items.slice(0, displayLimit).map((item) => {
+          <div className="space-y-5">
+            {groupedResults.map((group) => (
+              <section key={group.key} className="space-y-3">
+                <div className="px-1">
+                  <h4 className="text-[11px] uppercase tracking-wider text-legal-gold font-semibold">
+                    {GROUP_META[group.key].label}
+                  </h4>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    {GROUP_META[group.key].hint} · {group.items.length} result{group.items.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {group.items.map((item) => {
               const citCheck = citationChecks[item.id];
               const isBookmarked = bookmarks.has(item.id);
 
@@ -395,12 +560,15 @@ export function ResearchPanel(props: {
                             ? 'text-blue-400 border-blue-400/30 bg-blue-400/10'
                             : item.type === 'Study'
                             ? 'text-purple-400 border-purple-400/30 bg-purple-400/10'
+                            : item.type === 'Web'
+                            ? 'text-orange-400 border-orange-400/30 bg-orange-400/10'
                             : 'text-yellow-400 border-yellow-400/30 bg-yellow-400/10'
                         }`}
                       >
                         {item.type === 'Precedent' ? 'Case Law' : 
                          item.type === 'Act' ? 'Act' : 
                          item.type === 'Study' ? 'Study' :
+                         item.type === 'Web' ? 'Web' :
                          item.type || 'Resource'}
                       </span>
 
@@ -414,6 +582,15 @@ export function ResearchPanel(props: {
                           OFFICIAL
                         </span>
                       )}
+                      {item.authority === 'web' && item.tags?.includes('live_search') && (
+                        <span
+                          className="text-[10px] px-2 py-1 rounded-md font-medium border text-orange-300 border-orange-500/30 bg-orange-500/10 flex items-center gap-1"
+                          title="Live Internet Result"
+                        >
+                          <span className="text-[11px]">🌐</span>
+                          WEB
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -422,9 +599,15 @@ export function ResearchPanel(props: {
                     className="cursor-grab active:cursor-grabbing mb-3"
                     onMouseDown={(e) => props.onDragStart(e, item)}
                   >
-                    <h4 className="text-sm font-bold text-legal-text mb-2 font-serif leading-tight pr-4 group-hover:text-legal-gold transition-colors">
-                      {item.title || 'Untitled Resource'}
+                    <h4 className="text-sm font-bold text-legal-text mb-1 font-serif leading-tight pr-4 group-hover:text-legal-gold transition-colors">
+                      {sanitizeTitle(item.title) || 'Untitled Resource'}
                     </h4>
+                    {/* URL shown below title, like Google */}
+                    {item.url && (
+                      <p className="text-[10px] text-legal-gold/50 mb-2 truncate">
+                        {item.url.replace(/^https?:\/\//, '')}
+                      </p>
+                    )}
                     {item.summary && (
                       <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
                         {item.summary}
@@ -442,6 +625,18 @@ export function ResearchPanel(props: {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {/* Preview */}
+                      {item.url && (
+                        <button
+                          type="button"
+                          onClick={(e) => handlePreview(e, item)}
+                          className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-400 hover:text-legal-gold hover:border-legal-gold/30 hover:bg-black/30 transition-all flex items-center gap-1 font-medium"
+                        >
+                          <Eye size={10} />
+                          PREVIEW
+                        </button>
+                      )}
+
                       {/* Citation Check */}
                       {citCheck ? (
                         <div
@@ -478,7 +673,10 @@ export function ResearchPanel(props: {
                   </div>
                 </div>
               );
-            })}
+                  })}
+                </div>
+              </section>
+            ))}
             
             {/* Show More Button */}
             {items.length > displayLimit && (
@@ -502,9 +700,95 @@ export function ResearchPanel(props: {
       {/* Footer with Info */}
       <div className="p-3 border-t border-white/10 bg-legal-surface/60">
         <p className="text-[10px] text-slate-500 text-center">
-          💡 Drag any resource to insert into your case analysis
+          🌐 Searches the internet · Drag any result to insert into analysis
         </p>
       </div>
+
+      {/* Preview Modal */}
+      {selectedPreviewItem && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-[1px] z-[60] flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[85vh] bg-slate-950 border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3 bg-white/5">
+              <div className="min-w-0">
+                <h4 className="text-sm font-semibold text-slate-100 truncate">{selectedPreviewItem.title}</h4>
+                {selectedPreviewItem.url && (
+                  <p className="text-[11px] text-legal-gold/70 truncate mt-1">
+                    {selectedPreviewItem.url.replace(/^https?:\/\//, '')}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedPreviewItem(null);
+                  setPreviewState({ status: 'idle' });
+                }}
+                className="text-slate-400 hover:text-white transition-colors"
+                title="Close Preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              {previewState.status === 'loading' && selectedPreviewItem.url === previewState.url && (
+                <div className="py-12 flex flex-col items-center gap-2 text-slate-400">
+                  <Loader2 size={20} className="animate-spin" />
+                  <p className="text-sm">Fetching preview and extracting key content...</p>
+                </div>
+              )}
+
+              {previewState.status === 'error' && selectedPreviewItem.url === previewState.url && (
+                <div className="p-4 rounded-lg border border-red-500/20 bg-red-500/10 text-red-200 text-sm">
+                  {previewState.message}
+                </div>
+              )}
+
+              {previewState.status === 'ok' && selectedPreviewItem.url === previewState.url && (
+                <>
+                  {previewState.data.summary_ai && (
+                    <div className="p-4 rounded-lg border border-legal-gold/20 bg-legal-gold/10">
+                      <h5 className="text-xs font-bold text-legal-gold mb-2 uppercase tracking-wide">AI Summary</h5>
+                      <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{previewState.data.summary_ai}</p>
+                    </div>
+                  )}
+
+                  {previewState.data.key_points && previewState.data.key_points.length > 0 && (
+                    <div className="p-4 rounded-lg border border-white/10 bg-white/5">
+                      <h5 className="text-xs font-bold text-slate-300 mb-2 uppercase tracking-wide">Key Points</h5>
+                      <ul className="list-disc list-inside space-y-1 text-sm text-slate-300">
+                        {previewState.data.key_points.map((p, i) => (
+                          <li key={i}>{p}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="p-4 rounded-lg border border-white/10 bg-slate-900/70">
+                    <h5 className="text-xs font-bold text-slate-300 mb-2 uppercase tracking-wide">Extracted Content</h5>
+                    <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
+                      {previewState.data.content || 'No preview text extracted.'}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-white/10 bg-white/5 flex items-center justify-end gap-2">
+              {selectedPreviewItem.url && (
+                <a
+                  href={selectedPreviewItem.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs px-3 py-1.5 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-all inline-flex items-center gap-1"
+                >
+                  <ExternalLink size={12} />
+                  Open Original
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

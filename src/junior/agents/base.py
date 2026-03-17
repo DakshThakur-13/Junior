@@ -44,6 +44,16 @@ class AgentState(BaseModel):
     confidence_score: float = 0.0
     needs_revision: bool = False
     metadata: dict = Field(default_factory=dict)
+    # --- Memory & Query Enhancements ---
+    # Multi-turn conversation history: [{"role": "user"|"assistant", "content": str}]
+    conversation_history: list[dict] = Field(default_factory=list)
+    session_id: Optional[str] = None
+    # The query after Indian legal abbreviation expansion
+    expanded_query: Optional[str] = None
+    # How many times the query has been reformulated due to 0 results
+    reformulation_attempts: int = 0
+    # Specific issues raised by Critic that need targeted re-search
+    critic_issues: list[str] = Field(default_factory=list)
 
 class BaseAgent(ABC):
     """

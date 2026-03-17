@@ -1,64 +1,108 @@
-"""
-Supabase client configuration
-"""
+"""Supabase client configuration and health checks."""
 
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING, cast
 
 try:
-    from supabase import Client, create_client  # type: ignore
+    from supabase import create_client  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover
-    Client = Any  # type: ignore
     create_client = None  # type: ignore
+
+if TYPE_CHECKING:
+    from supabase import Client as SupabaseSDKClient
+else:
+    SupabaseSDKClient = Any
 
 from junior.core import settings, get_logger
 
 logger = get_logger(__name__)
 
 class SupabaseClient:
-    """Wrapper for Supabase client with connection management"""
-
-    _instance: Optional[Client] = None
+    """Wrapper for Supabase clients with explicit backend-safe behavior."""
 
     def __init__(self):
-        self._client: Optional[Client] = None
+        self._public_client: Optional[SupabaseSDKClient] = None
+        self._service_client: Optional[SupabaseSDKClient] = None
 
     @property
-    def client(self) -> Client:
-        """Get or create Supabase client"""
-        if self._client is None:
-            if create_client is None:
-                raise RuntimeError(
-                    "Supabase is not installed. Install with `pip install supabase` or remove Supabase features."
-                )
-            if not settings.supabase_url or not settings.supabase_key:
-                logger.warning("Supabase credentials not configured")
-                raise ValueError("Supabase URL and Key must be configured")
+    def is_configured(self) -> bool:
+        return bool(settings.supabase_url and settings.supabase_key)
 
-            # Prefer service role key on the backend if present.
-            # This avoids "empty results" caused by RLS policies when using the anon key.
-            key = settings.supabase_service_key or settings.supabase_key
-            self._client = create_client(settings.supabase_url, key)
-            logger.info(
-                "Supabase client initialized (%s)"
-                % ("service_role" if settings.supabase_service_key else "anon")
-            )
+    @property
+    def has_service_role(self) -> bool:
+        return bool(settings.supabase_url and settings.supabase_service_key)
 
-        return self._client
-
-    def get_service_client(self) -> Client:
-        """Get Supabase client with service role key (bypasses RLS)"""
+    def _ensure_sdk(self) -> None:
         if create_client is None:
             raise RuntimeError(
                 "Supabase is not installed. Install with `pip install supabase` or remove Supabase features."
             )
-        if not settings.supabase_url or not settings.supabase_service_key:
-            raise ValueError("Supabase service credentials not configured")
 
-        return create_client(
-            settings.supabase_url,
-            settings.supabase_service_key
-        )
+    def _normalize_url(self) -> str:
+        url = (settings.supabase_url or "").strip()
+        if not url:
+            raise ValueError("Supabase URL must be configured")
+        return url.rstrip("/")
+
+    def _build_client(self, key: str) -> SupabaseSDKClient:
+        self._ensure_sdk()
+        factory = cast(Any, create_client)
+        return factory(self._normalize_url(), key)
+
+    @property
+    def public_client(self) -> SupabaseSDKClient:
+        if self._public_client is None:
+            if not self.is_configured:
+                logger.warning("Supabase public credentials not configured")
+                raise ValueError("Supabase URL and Key must be configured")
+            self._public_client = self._build_client(settings.supabase_key)
+        return self._public_client
+
+    @property
+    def client(self) -> SupabaseSDKClient:
+        """Backend-facing client; prefer service role when available."""
+        if self.has_service_role:
+            return self.get_service_client()
+        return self.public_client
+
+    def get_service_client(self) -> SupabaseSDKClient:
+        """Get Supabase client with service role key (bypasses RLS)."""
+        self._ensure_sdk()
+        if not self.has_service_role:
+            raise ValueError("Supabase service credentials not configured")
+        if self._service_client is None:
+            self._service_client = self._build_client(settings.supabase_service_key)
+            logger.info("Supabase client initialized (service_role)")
+        return self._service_client
+
+    def healthcheck(self) -> dict[str, Any]:
+        """Perform a lightweight connectivity probe for operational health."""
+        if not self.is_configured:
+            return {
+                "ok": False,
+                "configured": False,
+                "mode": "none",
+                "message": "Supabase URL/key not configured",
+            }
+
+        mode = "service_role" if self.has_service_role else "anon"
+        try:
+            probe = self.client.table("documents").select("id").limit(1).execute()
+            return {
+                "ok": True,
+                "configured": True,
+                "mode": mode,
+                "message": "Supabase reachable",
+                "row_count_available": getattr(probe, "count", None) is not None,
+            }
+        except Exception as exc:
+            logger.warning(f"Supabase health check failed: {exc}")
+            return {
+                "ok": False,
+                "configured": True,
+                "mode": mode,
+                "message": str(exc),
+            }
 
     # Table shortcuts
     @property
