@@ -25,6 +25,13 @@ export function ChatPanel(props: {
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [selectedCitation, setSelectedCitation] = useState<{
+    citation: string;
+    title: string;
+    url: string;
+    court?: string;
+    verified?: boolean;
+  } | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -43,6 +50,19 @@ export function ChatPanel(props: {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [props.messages]);
+
+  useEffect(() => {
+    if (!selectedCitation) return;
+    const stillVisible = props.messages.some((msg) =>
+      Array.isArray(msg.citationSources)
+        ? msg.citationSources.some((entry) => entry.citation === selectedCitation.citation && entry.url === selectedCitation.url)
+        : false
+    );
+
+    if (!stillVisible) {
+      setSelectedCitation(null);
+    }
+  }, [props.messages, selectedCitation]);
 
   const handleSend = () => {
     if (inputValue.trim() && !props.isLoading && !isTranscribing) {
@@ -298,16 +318,15 @@ export function ChatPanel(props: {
                         }
 
                         return (
-                          <a
+                          <button
                             key={citation}
-                            href={linked.url}
-                            target="_blank"
-                            rel="noreferrer"
+                            type="button"
+                            onClick={() => setSelectedCitation(linked)}
                             title={`${linked.title}${linked.court ? ` • ${linked.court}` : ''}`}
-                            className="inline-flex"
+                            className="inline-flex text-left"
                           >
                             {chip}
-                          </a>
+                          </button>
                         );
                       })}
                     </div>
@@ -381,6 +400,57 @@ export function ChatPanel(props: {
                 <div className="w-1.5 h-1.5 bg-legal-gold rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                 <div className="w-1.5 h-1.5 bg-legal-gold rounded-full animate-bounce"></div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {selectedCitation && (
+          <div className="glass-panel border border-legal-gold/30 rounded-2xl p-4 bg-black/25 shadow-xl">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-legal-gold mb-1">Verified Source Preview</div>
+                <div className="text-sm font-semibold text-legal-text leading-snug">{selectedCitation.title || selectedCitation.citation}</div>
+                <div className="text-[11px] text-slate-400 mt-1">{selectedCitation.court || 'Legal source'}{selectedCitation.verified ? ' • verified' : ''}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCitation(null)}
+                className="p-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+                aria-label="Close source preview"
+                title="Close source preview"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="text-[11px] text-slate-300 bg-black/20 border border-white/10 rounded-xl p-3 break-all">
+              <span className="text-slate-500 uppercase tracking-wide mr-2">Citation</span>
+              {selectedCitation.citation}
+              <div className="mt-2 text-slate-500 uppercase tracking-wide">Link</div>
+              <div className="text-legal-gold break-all">{selectedCitation.url}</div>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void window.open(selectedCitation.url, '_blank', 'noopener,noreferrer')}
+                className="text-[10px] uppercase tracking-wide px-3 py-1.5 rounded-lg border border-legal-gold/30 bg-legal-gold/10 text-legal-gold hover:bg-legal-gold/20"
+              >
+                Open Source
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(selectedCitation.url);
+                  } catch {
+                    // ignore clipboard failures
+                  }
+                }}
+                className="text-[10px] uppercase tracking-wide px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:border-white/20"
+              >
+                Copy Link
+              </button>
             </div>
           </div>
         )}
