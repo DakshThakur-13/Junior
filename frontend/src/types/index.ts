@@ -27,11 +27,14 @@ export type DevilsAdvocateResponse = {
 
 // Case Data
 export type CaseData = {
-  id: number;
+  id: string;
   title: string;
   type: string;
   date: string;
   status: string;
+  caseNumber?: string;
+  court?: string;
+  bench?: string | null;
 };
 
 // Node Types
@@ -49,6 +52,9 @@ export type NodeData = {
   rotation: number;
   pinColor: 'red' | 'blue' | 'green' | 'yellow';
   source?: string;
+  content?: string;
+  caseNumber?: string;
+  documentId?: string;
   attachments?: Array<{
     name: string;
     kind: 'photo' | 'video' | 'audio' | 'document' | 'other';

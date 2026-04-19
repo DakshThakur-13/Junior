@@ -1710,7 +1710,11 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                                   📋 Copy
                                 </button>
                                 <button
-                                  onClick={() => alert('Ask AI feature coming soon!')}
+                                  onClick={() =>
+                                    copyToClipboard(
+                                      `Analyze this judicial pattern:\n\nPattern: ${p.pattern}\n\nEvidence:\n${p.evidence?.join('\n') || 'None'}\n\nQuestion: How should I adapt my strategy for this judge?`
+                                    )
+                                  }
                                   className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
                                   title="Ask AI about this pattern"
                                 >
@@ -1910,7 +1914,11 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                                     📋 Copy
                                   </button>
                                   <button
-                                    onClick={() => alert('Draft Response feature coming soon!')}
+                                    onClick={() =>
+                                      copyToClipboard(
+                                        `Draft Response Template\n\nIssue: ${p.title || `Attack Point ${idx + 1}`}\n\nOpponent's likely attack: ${p.suggested_attack || 'N/A'}\n\nOur response:\n1) Clarify facts:\n2) Distinguish precedent:\n3) Cite authority: ${p.counter_citation || 'Add relevant citation'}\n4) Relief sought:`
+                                      )
+                                    }
                                     className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
                                     title="Draft a response"
                                   >
@@ -2049,21 +2057,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     setDragStartPos({ x: e.clientX, y: e.clientY });
   };
 
-  const [nodes, setNodes] = useState<NodeData[]>(() => {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const cx = w / 2;
-    const cy = h / 2;
-    const cardWidth = 320;
-    const halfCard = cardWidth / 2;
-
-    return [
-      { id: 1, title: 'FIR No. 402/2023', type: 'Evidence', date: '12 Oct 2023', status: 'Verified', x: cx - halfCard, y: cy - 300, rotation: 0, pinColor: 'red', attachments: [] },
-      { id: 2, title: 'Witness Statement (A)', type: 'Statement', date: '14 Oct 2023', status: 'Contested', x: cx - halfCard - 350, y: cy, rotation: -1, pinColor: 'blue', attachments: [] },
-      { id: 3, title: 'CCTV Log (Exhibit B)', type: 'Evidence', date: '12 Oct 2023', status: 'Verified', x: cx - halfCard + 350, y: cy, rotation: 1, pinColor: 'green', attachments: [] },
-      { id: 4, title: 'Alibi Defense Strategy', type: 'Strategy', date: 'Pending', status: 'Pending', x: cx - halfCard, y: cy + 300, rotation: 0, pinColor: 'yellow', attachments: [] },
-    ];
-  });
+  const [nodes, setNodes] = useState<NodeData[]>([]);
 
   // Start with no connections - they should only appear after "Analyze Wall"
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -2076,6 +2070,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
 
   const caseId = props.activeCase?.id ? String(props.activeCase.id) : 'default';
   const caseTitle = props.activeCase?.title ?? 'Current Matter';
+  const caseNumber = props.activeCase?.caseNumber ?? '';
   const chatStorageKey = useMemo(() => `junior:chat:${caseId}`, [caseId]);
   const loadStoredMessages = useCallback(
     (key: string): ChatMessage[] | null => {
@@ -2211,6 +2206,123 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
 
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    if (!props.activeCase?.id || !caseNumber) {
+      setNodes([]);
+      setConnections([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const hydrateWall = async () => {
+      try {
+        const [caseRes, docsRes] = await Promise.all([
+          fetch(`/api/v1/cases/${props.activeCase?.id}`),
+          fetch(`/api/v1/documents/?case_number=${encodeURIComponent(caseNumber)}&limit=50`),
+        ]);
+
+        if (!caseRes.ok) throw new Error(`Failed to load case (${caseRes.status})`);
+        if (!docsRes.ok) throw new Error(`Failed to load documents (${docsRes.status})`);
+
+        const caseData = await caseRes.json() as {
+          title?: string;
+          filing_date?: string;
+          timeline?: Array<{ id: string; date: string; event_type: string; title: string; description?: string; documents?: string[] }>;
+          notes?: string | null;
+        };
+        const docsData = await docsRes.json() as { documents?: Array<{ id: string; title: string; date?: string; summary?: string; url?: string | null }> };
+
+        const documents = Array.isArray(docsData.documents) ? docsData.documents : [];
+        const timeline = Array.isArray(caseData.timeline) ? caseData.timeline : [];
+
+        const centerX = window.innerWidth / 2 - 160;
+        const topY = 120;
+        const mappedNodes: NodeData[] = [];
+
+        timeline.forEach((event, idx) => {
+          const docId = Array.isArray(event.documents) ? event.documents[0] : undefined;
+          const match = documents.find((doc) => doc.id === docId);
+          const eventType = String(event.event_type || '').toLowerCase();
+          const nodeType: NodeData['type'] =
+            eventType === 'judgment' ? 'Precedent' : eventType === 'hearing' ? 'Statement' : 'Evidence';
+
+          mappedNodes.push({
+            id: idx + 1,
+            title: event.title || match?.title || `Case Event ${idx + 1}`,
+            type: nodeType,
+            date: event.date ? new Date(event.date).toLocaleDateString('en-IN') : props.activeCase?.date || '',
+            status: nodeType === 'Precedent' ? 'Verified' : 'Pending',
+            x: centerX + ((idx % 2 === 0 ? -1 : 1) * 260),
+            y: topY + idx * 170,
+            rotation: idx % 2 === 0 ? -2 : 2,
+            pinColor: nodeType === 'Precedent' ? 'blue' : nodeType === 'Statement' ? 'yellow' : 'green',
+            source: 'Case Timeline',
+            caseNumber,
+            documentId: docId,
+            content: match?.summary || event.description || '',
+            attachments: match
+              ? [{ name: match.title, kind: 'document', url: match.url || undefined }]
+              : [],
+          });
+        });
+
+        documents.forEach((doc, docIdx) => {
+          if (mappedNodes.some((node) => node.documentId === doc.id)) return;
+          mappedNodes.push({
+            id: timeline.length + docIdx + 1,
+            title: doc.title,
+            type: 'Evidence',
+            date: doc.date ? new Date(doc.date).toLocaleDateString('en-IN') : props.activeCase?.date || '',
+            status: 'Verified',
+            x: centerX + ((docIdx % 3) - 1) * 290,
+            y: topY + timeline.length * 170 + 140 + Math.floor(docIdx / 3) * 170,
+            rotation: (docIdx % 3) - 1,
+            pinColor: 'red',
+            source: 'Case Document',
+            caseNumber,
+            documentId: doc.id,
+            content: doc.summary || '',
+            attachments: [{ name: doc.title, kind: 'document', url: doc.url || undefined }],
+          });
+        });
+
+        if (caseData.notes) {
+          mappedNodes.push({
+            id: mappedNodes.length + 1,
+            title: 'Case Strategy Notes',
+            type: 'Strategy',
+            date: props.activeCase?.date || '',
+            status: 'Pending',
+            x: centerX,
+            y: topY + Math.max(mappedNodes.length, 1) * 170,
+            rotation: 0,
+            pinColor: 'yellow',
+            source: 'Case Notes',
+            caseNumber,
+            content: caseData.notes,
+            attachments: [],
+          });
+        }
+
+        if (!cancelled) {
+          setNodes(mappedNodes);
+          setConnections([]);
+        }
+      } catch {
+        if (!cancelled) {
+          setNodes([]);
+          setConnections([]);
+        }
+      }
+    };
+
+    void hydrateWall();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseNumber, props.activeCase?.date, props.activeCase?.id]);
+
   const handleUploadClick = () => {
     uploadInputRef.current?.click();
   };
@@ -2218,31 +2330,42 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const handleUploadFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    const now = Date.now();
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    const cx = w / 2;
-    const cy = h / 2;
+    void (async () => {
+      const centerX = window.innerWidth / 2 - 160;
+      const baseY = 180 + nodes.length * 40;
+      const created: NodeData[] = [];
 
-    const created: NodeData[] = Array.from(files).map((f, idx) => ({
-      id: now + idx,
-      title: f.name,
-      type: 'Evidence',
-      date: new Date().toLocaleDateString(),
-      status: 'Pending',
-      x: cx - 160 + (idx % 3) * 36,
-      y: cy - 50 + Math.floor(idx / 3) * 36,
-      rotation: Math.random() * 6 - 3,
-      pinColor: 'yellow',
-      source: 'Upload',
-      attachments: [{ name: f.name, kind: 'document', sizeBytes: f.size }],
-    }));
+      for (const [idx, file] of Array.from(files).entries()) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('title', file.name.replace(/\.pdf$/i, ''));
+        if (caseNumber) form.append('case_number', caseNumber);
 
-    let nextNodes: NodeData[] = [];
-    setNodes((prev) => {
-      nextNodes = [...prev, ...created];
-      return nextNodes;
-    });
+        try {
+          await fetch('/api/v1/documents/upload', { method: 'POST', body: form });
+        } catch {
+          // keep local node even if upload fails visibly in backend logs
+        }
+
+        created.push({
+          id: Date.now() + idx,
+          title: file.name,
+          type: 'Evidence',
+          date: new Date().toLocaleDateString('en-IN'),
+          status: 'Pending',
+          x: centerX + (idx % 3) * 40,
+          y: baseY + Math.floor(idx / 3) * 40,
+          rotation: Math.random() * 6 - 3,
+          pinColor: 'yellow',
+          source: 'Upload',
+          caseNumber,
+          content: 'Uploaded document pending extraction.',
+          attachments: [{ name: file.name, kind: 'document', sizeBytes: file.size }],
+        });
+      }
+
+      setNodes((prev) => [...prev, ...created]);
+    })();
   };
 
   const defaultWelcome = useMemo<ChatMessage[]>(
@@ -2805,7 +2928,7 @@ export default function App() {
 
   const handleNewCase = () => {
     setActiveCase({
-      id: Date.now(),
+      id: String(Date.now()),
       title: 'New Case',
       type: 'General',
       date: new Date().toLocaleDateString(),

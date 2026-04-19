@@ -31,6 +31,10 @@ logger = get_logger(__name__)
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+_DEMO_DOCUMENT_ID_PREFIXES = (
+    "650e8400-e29b-41d4-a716-44665544",
+)
+
 
 def _parse_court(raw: Optional[str]) -> Court:
     if not raw:
@@ -40,6 +44,20 @@ def _parse_court(raw: Optional[str]) -> Court:
         if court.value == value:
             return court
     return Court.OTHER
+
+
+def _safe_date_text(raw: object) -> str:
+    if not raw:
+        return ""
+    value = str(raw)
+    return value[:10] if len(value) >= 10 else value
+
+
+def _is_demo_seed_document_id(raw_id: object) -> bool:
+    value = str(raw_id or "").strip().lower()
+    if not value:
+        return False
+    return any(value.startswith(prefix) for prefix in _DEMO_DOCUMENT_ID_PREFIXES)
 
 if _HAS_MULTIPART:
 
@@ -159,6 +177,95 @@ else:
             status_code=503,
             detail='File upload requires "python-multipart". Install it with: pip install python-multipart',
         )
+
+
+@router.get("/")
+async def list_documents(limit: int = 100, case_number: Optional[str] = None):
+    """List uploaded documents for frontend vault and case workbench."""
+    clamped_limit = max(1, min(limit, 500))
+
+    # 1) Supabase-first listing
+    try:
+        from junior.db.client import get_supabase_client
+
+        client = get_supabase_client()
+        if client.is_configured:
+            result = (
+                client.documents
+                .select("id,title,court,case_number,judgment_date,summary,source_url,pdf_url,metadata,created_at")
+                .order("judgment_date", desc=True)
+                .limit(clamped_limit)
+                .execute()
+            )
+            rows = result.data or []
+
+            docs = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if _is_demo_seed_document_id(row.get("id")):
+                    continue
+                row_case_number = str(row.get("case_number") or "").strip()
+                if case_number and row_case_number != case_number:
+                    continue
+                metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+                docs.append(
+                    {
+                        "id": str(row.get("id") or ""),
+                        "title": str(row.get("title") or "Untitled Document"),
+                        "type": "Evidence",
+                        "date": _safe_date_text(row.get("judgment_date") or row.get("created_at")),
+                        "size": "--",
+                        "url": row.get("pdf_url") or row.get("source_url") or metadata.get("source_url"),
+                        "source": "supabase",
+                        "court": str(row.get("court") or "").lower(),
+                        "case_number": row_case_number,
+                        "summary": row.get("summary") or metadata.get("summary") or "",
+                    }
+                )
+
+            if docs:
+                return {"documents": docs, "source": "supabase"}
+    except Exception as e:
+        logger.info(f"Supabase list_documents unavailable, using local store: {e}")
+
+    # 2) Local file-store fallback
+    try:
+        import json
+
+        docs_dir = UPLOAD_DIR / "documents"
+        docs = []
+        if docs_dir.exists():
+            for fp in sorted(docs_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+                try:
+                    payload = json.loads(fp.read_text(encoding="utf-8"))
+                    if not isinstance(payload, dict):
+                        continue
+                    payload_case_number = str(payload.get("case_number") or "").strip()
+                    if case_number and payload_case_number != case_number:
+                        continue
+                    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+                    docs.append(
+                        {
+                            "id": str(payload.get("id") or fp.stem),
+                            "title": str(payload.get("title") or "Untitled Document"),
+                            "type": "Evidence",
+                            "date": _safe_date_text(payload.get("date") or ""),
+                            "size": f"{round(fp.stat().st_size / 1024, 1)} KB",
+                            "url": metadata.get("source_url") or metadata.get("pdf_url"),
+                            "source": "local",
+                            "court": str(payload.get("court") or "").lower(),
+                            "case_number": payload_case_number,
+                            "summary": payload.get("summary") or "",
+                        }
+                    )
+                except Exception:
+                    continue
+
+        return {"documents": docs[:clamped_limit], "source": "local"}
+    except Exception as e:
+        logger.error(f"List documents error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/search", response_model=list[DocumentSearchResult])

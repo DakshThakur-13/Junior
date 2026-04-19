@@ -146,7 +146,21 @@ export function NodeDetailsPanel(props: {
   };
 
   const handleCompare = () => {
-    alert("Select another node to compare (Feature coming soon)");
+    const brief = [
+      `Node: ${props.node.title}`,
+      `Type: ${props.node.type}`,
+      `Status: ${props.node.status}`,
+      '',
+      'Connected Nodes:',
+      ...related.slice(0, 8).map((c) => {
+        const other = c.from === props.node.id ? c.to : c.from;
+        return `- ${getTitle(other)} (${c.type})`;
+      }),
+      '',
+      'Use this as baseline and compare with another node in your wall.',
+    ].join('\n');
+    navigator.clipboard.writeText(brief);
+    alert('Comparison brief copied. Open another node and compare the two briefs.');
   };
 
   return (
@@ -199,6 +213,20 @@ export function NodeDetailsPanel(props: {
         </div>
 
         {/* Document Analysis */}
+        {props.node.content && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+              <FileText size={12} />
+              Case File Content
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+              <div className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap font-serif">
+                {props.node.content}
+              </div>
+            </div>
+          </div>
+        )}
+
         {firstDocumentUrl && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">

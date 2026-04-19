@@ -10,6 +10,11 @@ from enum import Enum
 import hashlib
 
 
+_DEMO_DOCUMENT_ID_PREFIXES = (
+    "650e8400-e29b-41d4-a716-44665544",
+)
+
+
 def _safe_date(raw: object) -> Optional[date]:
     if not raw:
         return None
@@ -73,6 +78,13 @@ def _normalize_court(raw: object) -> str:
     if not text:
         return "other"
     return text.lower()
+
+
+def _is_demo_seed_document_id(raw_id: object) -> bool:
+    value = str(raw_id or "").strip().lower()
+    if not value:
+        return False
+    return any(value.startswith(prefix) for prefix in _DEMO_DOCUMENT_ID_PREFIXES)
 
 
 def _build_cases_from_grouped_docs(grouped: dict[str, list[dict]]) -> list["CaseHistory"]:
@@ -185,6 +197,8 @@ def _try_build_cases_from_supabase() -> list["CaseHistory"]:
         for row in rows:
             if not isinstance(row, dict):
                 continue
+            if _is_demo_seed_document_id(row.get("id")):
+                continue
             case_number = str(row.get("case_number") or "").strip()
             if not case_number:
                 continue
@@ -243,11 +257,18 @@ def _try_build_cases_from_local_store() -> list[CaseHistory]:
 
 
 def _load_cases() -> list[CaseHistory]:
-    """Supabase-first case source with local fallback."""
-    supabase_cases = _try_build_cases_from_supabase()
-    if supabase_cases:
-        return supabase_cases
-    return _try_build_cases_from_local_store()
+    """Merged case source: Supabase (without seed demo rows) + local store."""
+    merged: dict[str, CaseHistory] = {}
+
+    # Local cases are always included so uploaded/manual local documents are visible.
+    for case in _try_build_cases_from_local_store():
+        merged[case.case_number] = case
+
+    # Supabase cases override same case_number to keep DB as system of record.
+    for case in _try_build_cases_from_supabase():
+        merged[case.case_number] = case
+
+    return sorted(merged.values(), key=lambda c: c.filing_date, reverse=True)
 
 router = APIRouter()
 

@@ -1,18 +1,99 @@
 import { ChevronRight, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CaseData } from '../types';
 
+type ApiCase = {
+  id: string;
+  case_number: string;
+  title: string;
+  court: string;
+  bench?: string | null;
+  status: string;
+  filing_date: string;
+};
+
+function formatCourt(court: string): string {
+  const text = String(court || '').replace(/_/g, ' ').trim();
+  return text ? text.toUpperCase() : 'OTHER';
+}
+
+function formatDate(raw: string): string {
+  if (!raw) return 'Unknown';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString('en-IN', { month: 'short', day: '2-digit', year: 'numeric' });
+}
+
+function mapStatus(raw: string): 'Active' | 'Pending' | 'Closed' {
+  const s = String(raw || '').toLowerCase();
+  if (s === 'disposed' || s === 'closed' || s === 'decided') return 'Closed';
+  if (s === 'listed' || s === 'reserved' || s === 'adjourned') return 'Pending';
+  return 'Active';
+}
+
 export function CaseSelection(props: { onSelectCase: (c: CaseData) => void; onNewCase: () => void }) {
-  const cases: CaseData[] = [
-    { id: 1, title: 'State vs. Sharma', type: 'Criminal', date: 'Oct 12, 2023', status: 'Active' },
-    { id: 2, title: 'Mehta Property Dispute', type: 'Civil', date: 'Sep 28, 2023', status: 'Pending' },
-    { id: 3, title: 'TechCorp Merger', type: 'Corporate', date: 'Aug 15, 2023', status: 'Closed' },
-  ];
+  const [apiCases, setApiCases] = useState<ApiCase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCases = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch('/api/v1/cases/');
+        if (!res.ok) {
+          throw new Error(`Failed to load cases (${res.status})`);
+        }
+
+        const payload = await res.json() as { cases?: ApiCase[] };
+        if (!cancelled) {
+          setApiCases(Array.isArray(payload.cases) ? payload.cases : []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to load cases');
+          setApiCases([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadCases();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const cases: CaseData[] = useMemo(
+    () =>
+      apiCases.map((c, idx) => ({
+        id: c.id || String(idx + 1),
+        title: c.title || c.case_number || `Case ${idx + 1}`,
+        type: formatCourt(c.court),
+        date: formatDate(c.filing_date),
+        status: mapStatus(c.status),
+        caseNumber: c.case_number,
+        court: c.court,
+        bench: c.bench ?? null,
+      })),
+    [apiCases],
+  );
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen w-full text-legal-text relative overflow-hidden bg-legal-bg">
       <div className="absolute inset-0 container-bg z-0 opacity-50"></div>
       <div className="z-10 w-full max-w-4xl px-4 sm:px-8">
         <h2 className="text-4xl font-bold font-serif mb-12 text-center tracking-tight">Your Cases</h2>
+        {loading && <p className="text-center text-slate-400 mb-6 text-sm">Loading live cases...</p>}
+        {!loading && error && <p className="text-center text-rose-300 mb-6 text-sm">{error}</p>}
+        {!loading && !error && cases.length === 0 && (
+          <p className="text-center text-slate-400 mb-6 text-sm">No cases found yet. Add or upload documents to create case history.</p>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {cases.map((c) => (
             <button

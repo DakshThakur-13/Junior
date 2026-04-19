@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Clock, FileText, GripVertical, Search, ShieldAlert, Upload, X } from 'lucide-react';
 import type { ResearchItem } from './ResearchPanel';
+
+type VaultDocument = ResearchItem;
 
 export function VaultPanel(props: {
   isOpen: boolean;
@@ -8,14 +10,66 @@ export function VaultPanel(props: {
   onDragStart: (e: React.MouseEvent<HTMLElement>, item: ResearchItem) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [files, setFiles] = useState<VaultDocument[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const files: ResearchItem[] = [
-    { id: 'v1', title: 'Witness_Statement_A.pdf', type: 'Statement', size: '2.4 MB', date: '12 Oct 2023' },
-    { id: 'v2', title: 'Crime_Scene_Photos.zip', type: 'Evidence', size: '156 MB', date: '12 Oct 2023' },
-    { id: 'v3', title: 'Ballistics_Report_Final.pdf', type: 'Evidence', size: '4.1 MB', date: '14 Oct 2023' },
-    { id: 'v4', title: 'CCTV_Footage_Cam04.mp4', type: 'Evidence', size: '840 MB', date: '12 Oct 2023' },
-    { id: 'v5', title: 'Call_Logs_Dump.csv', type: 'Evidence', size: '12 KB', date: '13 Oct 2023' },
-  ];
+  const loadVaultFiles = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const res = await fetch('/api/v1/documents/?limit=200');
+      if (!res.ok) throw new Error(`Failed to load vault files (${res.status})`);
+      const data = (await res.json()) as { documents?: VaultDocument[] };
+      setFiles(Array.isArray(data.documents) ? data.documents : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load vault files');
+      setFiles([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!props.isOpen) return;
+    void loadVaultFiles();
+  }, [props.isOpen]);
+
+  const onPickUpload = () => uploadInputRef.current?.click();
+
+  const onFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files;
+    if (!selected || selected.length === 0) return;
+
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      for (const file of Array.from(selected)) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('title', file.name.replace(/\.pdf$/i, ''));
+
+        const res = await fetch('/api/v1/documents/upload', {
+          method: 'POST',
+          body: form,
+        });
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(detail || `Upload failed (${res.status})`);
+        }
+      }
+
+      await loadVaultFiles();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setIsUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
+  };
 
   const filtered = files.filter((item) => item.title.toLowerCase().includes(query.toLowerCase()));
 
@@ -44,10 +98,24 @@ export function VaultPanel(props: {
             className="w-full bg-black/20 border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-xs text-slate-200 focus:border-legal-gold/50 outline-none glass-input transition-all"
           />
         </div>
-        <div className="border-2 border-dashed border-white/10 rounded-xl p-4 flex flex-col items-center justify-center text-slate-500 hover:text-legal-gold hover:border-legal-gold/30 hover:bg-white/5 transition-all cursor-pointer">
+        <button
+          type="button"
+          onClick={onPickUpload}
+          disabled={isUploading}
+          className="w-full border-2 border-dashed border-white/10 rounded-xl p-4 flex flex-col items-center justify-center text-slate-500 hover:text-legal-gold hover:border-legal-gold/30 hover:bg-white/5 transition-all cursor-pointer disabled:opacity-60"
+        >
           <Upload size={20} className="mb-2" />
-          <span className="text-[10px] font-medium uppercase tracking-wider">Upload New File</span>
-        </div>
+          <span className="text-[10px] font-medium uppercase tracking-wider">{isUploading ? 'Uploading...' : 'Upload New File'}</span>
+        </button>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          aria-label="Upload case documents"
+          accept="application/pdf"
+          multiple
+          className="hidden"
+          onChange={onFilesSelected}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-3">
@@ -55,6 +123,10 @@ export function VaultPanel(props: {
           <FileText size={10} className="text-legal-gold" />
           <span>UPLOADED DOCUMENTS</span>
         </div>
+
+        {isLoading && <div className="text-xs text-slate-500">Loading vault files...</div>}
+        {!isLoading && error && <div className="text-xs text-rose-300">{error}</div>}
+        {!isLoading && !error && filtered.length === 0 && <div className="text-xs text-slate-500">No uploaded files yet.</div>}
 
         {filtered.map((item) => (
           <button
