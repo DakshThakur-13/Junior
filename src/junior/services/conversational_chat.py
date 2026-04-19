@@ -44,6 +44,16 @@ Remember:
 - You're fast and efficient - get to the point while being friendly
 """
 
+RESEARCH_MODE_PROMPT = """Research mode is ON.
+
+Requirements:
+- Be precise and legally grounded.
+- When citing law/cases, include source URLs when available.
+- Separate facts, assumptions, and legal inference.
+- End with a short checklist of next actions for counsel.
+- If uncertain, state uncertainty explicitly.
+"""
+
 
 class ConversationalChat:
     """Natural, ChatGPT-like chat for legal queries"""
@@ -72,6 +82,8 @@ class ConversationalChat:
         try:
             # Build conversation context
             messages = [SystemMessage(content=LEGAL_ASSISTANT_PROMPT)]
+            if use_research:
+                messages.append(SystemMessage(content=RESEARCH_MODE_PROMPT))
             
             # Add conversation history (last 6 messages for context)
             for msg in conversation_history[-6:]:
@@ -86,8 +98,8 @@ class ConversationalChat:
             # Get the right model (Perplexity for chat - has online search built-in)
             llm = self.model_router.get_model(
                 purpose=ModelPurpose.CHAT,
-                temperature=0.7,  # More creative for natural conversation
-                max_tokens=2048
+                temperature=0.35 if use_research else 0.7,
+                max_tokens=3072 if use_research else 2048,
             )
             
             # Stream the response

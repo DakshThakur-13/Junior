@@ -5,6 +5,7 @@ Streaming chat endpoint for real-time responses
 from uuid import uuid4
 from datetime import datetime
 import json
+import re
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -25,6 +26,44 @@ chat_service = ConversationalChat()
 # Import shared session store from chat.py
 from . import chat
 active_sessions = chat.active_sessions
+
+
+URL_RE = re.compile(r"https?://[^\s)\]>]+", re.IGNORECASE)
+
+
+def _extract_sources(text: str) -> list[str]:
+    sources: list[str] = []
+    seen: set[str] = set()
+    for m in URL_RE.findall(text or ""):
+        cleaned = m.rstrip(".,;:!?")
+        if cleaned not in seen:
+            seen.add(cleaned)
+            sources.append(cleaned)
+    return sources[:5]
+
+
+def _suggest_next_actions(user_message: str, final_response: str) -> list[str]:
+    msg = (user_message or "").lower()
+    resp = (final_response or "").lower()
+    actions: list[str] = []
+
+    if any(k in msg for k in ["bail", "anticipatory", "hearing", "court"]):
+        actions.append("Create a hearing checklist with dates, documents, and witness prep.")
+    if any(k in msg for k in ["draft", "petition", "notice", "application"]):
+        actions.append("Draft a filing-ready version with court formatting and missing fields highlighted.")
+    if "evidence" in msg or "evidence" in resp:
+        actions.append("List evidence gaps and priority documents to collect before filing.")
+    if any(k in msg for k in ["section", "act", "precedent", "judgment"]):
+        actions.append("Pull 3 stronger precedents and explain how each supports your facts.")
+
+    if not actions:
+        actions = [
+            "Summarize this advice into an actionable checklist.",
+            "Highlight risks and counter-arguments I should prepare for.",
+            "Draft the next formal legal document based on this chat.",
+        ]
+
+    return actions[:3]
 
 
 def _has_devanagari(text: str) -> bool:
@@ -126,6 +165,7 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
                 updated_at=datetime.utcnow(),
             )
             active_sessions[session_id] = session
+            chat.save_session(session)
 
         translator = TranslationService()
 
@@ -154,6 +194,7 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
             timestamp=datetime.utcnow(),
         )
         session.messages.append(user_message)
+        chat.save_session(session)
 
         # Send session ID first
         yield f"data: {json.dumps({'type': 'session', 'session_id': session.id})}\n\n"
@@ -175,10 +216,14 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
         full_response_en = ""
         should_stream_english = request.language == Language.ENGLISH
 
+        use_research = request.use_research
+        if use_research is None:
+            use_research = chat_service.should_use_deep_research(message_for_model)
+
         async for chunk in chat_service.stream_response(
             message_for_model,
             conversation_history,
-            use_research=False,
+            use_research=use_research,
         ):
             full_response_en += chunk
             if should_stream_english:
@@ -227,6 +272,10 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
             except Exception:
                 preserved_terms = []
             yield f"data: {json.dumps({'type': 'meta', 'preserved_terms': preserved_terms})}\n\n"
+
+        sources = _extract_sources(final_response)
+        suggested_actions = _suggest_next_actions(request.message, final_response) if request.suggest_actions else []
+        yield f"data: {json.dumps({'type': 'meta', 'sources': sources, 'suggested_actions': suggested_actions})}\n\n"
         
         # Save assistant message to session
         assistant_message = ChatMessage(
@@ -238,6 +287,7 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
         )
         session.messages.append(assistant_message)
         session.updated_at = datetime.utcnow()
+        chat.save_session(session)
 
         # Send done signal
         yield f"data: {json.dumps({'type': 'done'})}\n\n"

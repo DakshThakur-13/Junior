@@ -3088,11 +3088,12 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const defaultWelcome = useMemo<ChatMessage[]>(
     () => [
       {
+        id: `welcome-${caseNumber}`,
         role: 'assistant',
         content: `Welcome to ${caseTitle}. I can read your wall, spot conflicts, and draft next steps. If you add evidence, I'll cross-check timelines and witnesses.`,
       },
     ],
-    [caseTitle]
+    [caseNumber, caseTitle]
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages(chatStorageKey) ?? defaultWelcome);
@@ -3101,11 +3102,13 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const [chatLanguage, setChatLanguage] = useState<ChatLanguage>('en');
   const [chatOutputScript, setChatOutputScript] = useState<OutputScript>('native');
   const renderLegalTerms = useLegalTermRenderer();
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const chatSessionStorageKey = `${chatStorageKey}:sessionId`;
 
   useEffect(() => {
     setMessages(loadStoredMessages(chatStorageKey) ?? defaultWelcome);
-    setChatSessionId(null);
-  }, [chatStorageKey, defaultWelcome, loadStoredMessages]);
+    setChatSessionId(localStorage.getItem(chatSessionStorageKey));
+  }, [chatStorageKey, chatSessionStorageKey, defaultWelcome, loadStoredMessages]);
 
   useEffect(() => {
     try {
@@ -3114,6 +3117,15 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
       // ignore storage errors
     }
   }, [messages, chatStorageKey]);
+
+  useEffect(() => {
+    try {
+      if (chatSessionId) localStorage.setItem(chatSessionStorageKey, chatSessionId);
+      else localStorage.removeItem(chatSessionStorageKey);
+    } catch {
+      // ignore storage errors
+    }
+  }, [chatSessionId, chatSessionStorageKey]);
 
   useEffect(() => {
     if (!draggedResearchItem) return;
@@ -3228,27 +3240,48 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   };
 
   const handleSendMessage = async (message: string) => {
-    setMessages((prev) => [...prev, { role: 'user', content: message }]);
+    const userMessageId = `user-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const assistantMessageId = `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const controller = new AbortController();
+
+    setMessages((prev) => [
+      ...prev,
+      { id: userMessageId, role: 'user', content: message },
+      { id: assistantMessageId, role: 'assistant', content: '' },
+    ]);
     setIsLoading(true);
-    
-    // Add a placeholder for assistant message that we'll stream into
-    const assistantMsgIndex = messages.length + 1;
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
-    
+    streamAbortRef.current = controller;
+
+    let fullResponse = '';
+
+    const applyAssistantUpdate = (content: string, extras?: Partial<ChatMessage>) => {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== assistantMessageId) return msg;
+          return {
+            ...msg,
+            content,
+            ...extras,
+          };
+        })
+      );
+    };
+
     try {
       const payload: Record<string, unknown> = {
         message,
         language: chatLanguage,
         input_language: chatLanguage === 'en' ? null : chatLanguage,
         output_script: chatLanguage === 'en' ? null : chatOutputScript,
+        suggest_actions: suggestActions,
       };
       if (chatSessionId) payload.session_id = chatSessionId;
 
-      // Use streaming endpoint for ChatGPT-like experience
       const response = await fetch('/api/v1/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -3256,76 +3289,105 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
       }
 
       const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      
       if (!reader) {
         throw new Error('No response body');
       }
 
-      let fullResponse = '';
-      
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let doneReceived = false;
+
+      const processEvent = (eventText: string) => {
+        const dataLines = eventText
+          .split('\n')
+          .filter((line) => line.startsWith('data: '))
+          .map((line) => line.slice(6));
+        if (!dataLines.length) return;
+
+        const data = JSON.parse(dataLines.join('\n')) as {
+          type?: string;
+          session_id?: string;
+          content?: string;
+          preserved_terms?: unknown[];
+          sources?: unknown[];
+          suggested_actions?: unknown[];
+          error?: string;
+        };
+
+        if (data.type === 'session' && data.session_id) {
+          setChatSessionId(data.session_id);
+          return;
+        }
+
+        if (data.type === 'chunk' && typeof data.content === 'string') {
+          fullResponse += data.content;
+          applyAssistantUpdate(fullResponse);
+          return;
+        }
+
+        if (data.type === 'meta') {
+          const extras: Partial<ChatMessage> = {};
+          if (Array.isArray(data.preserved_terms)) {
+            extras.preservedTerms = data.preserved_terms.filter((t): t is string => typeof t === 'string');
+          }
+          if (Array.isArray(data.sources)) {
+            extras.sources = data.sources.filter((t): t is string => typeof t === 'string');
+          }
+          if (Array.isArray(data.suggested_actions)) {
+            extras.suggestedActions = data.suggested_actions.filter((t): t is string => typeof t === 'string');
+          }
+          applyAssistantUpdate(fullResponse, extras);
+          return;
+        }
+
+        if (data.type === 'error') {
+          throw new Error(data.error || 'Unknown error');
+        }
+
+        if (data.type === 'done') {
+          doneReceived = true;
+        }
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              if (data.type === 'session' && data.session_id) {
-                setChatSessionId(data.session_id);
-              } else if (data.type === 'chunk' && data.content) {
-                fullResponse += data.content;
-                // Update the assistant message with streaming content
-                setMessages((prev) => {
-                  const newMessages = [...prev];
-                  newMessages[assistantMsgIndex] = {
-                    role: 'assistant',
-                    content: fullResponse,
-                    preservedTerms: newMessages[assistantMsgIndex]?.preservedTerms,
-                  };
-                  return newMessages;
-                });
-              } else if (data.type === 'meta' && Array.isArray(data.preserved_terms)) {
-                const preserved = data.preserved_terms.filter((t: unknown) => typeof t === 'string') as string[];
-                setMessages((prev) => {
-                  const newMessages = [...prev];
-                  const existing = newMessages[assistantMsgIndex];
-                  newMessages[assistantMsgIndex] = {
-                    ...(existing ?? { role: 'assistant', content: fullResponse }),
-                    preservedTerms: preserved,
-                  };
-                  return newMessages;
-                });
-              } else if (data.type === 'error') {
-                throw new Error(data.error || 'Unknown error');
-              }
-            } catch (e) {
-              // Ignore JSON parse errors for incomplete chunks
-              if (e instanceof Error && !e.message.includes('Unexpected')) {
-                throw e;
-              }
-            }
-          }
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() ?? '';
+
+        for (const rawEvent of events) {
+          if (!rawEvent.trim()) continue;
+          processEvent(rawEvent);
+          if (doneReceived) break;
+        }
+
+        if (doneReceived) {
+          break;
         }
       }
-      
+
+      if (buffer.trim()) {
+        processEvent(buffer);
+      }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setMessages((prev) => {
-        const newMessages = [...prev];
-        newMessages[assistantMsgIndex] = {
-          role: 'assistant',
-          content: `Sorry, I encountered an error: ${errorMessage}\n\nPlease try again.`
-        };
-        return newMessages;
-      });
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        if (!fullResponse.trim()) {
+          applyAssistantUpdate('Response stopped.');
+        }
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        applyAssistantUpdate(`Sorry, I encountered an error: ${errorMessage}\n\nPlease try again.`);
+      }
+    } finally {
+      streamAbortRef.current = null;
+      setIsLoading(false);
     }
-    setIsLoading(false);
+  };
+
+  const handleStopResponse = () => {
+    streamAbortRef.current?.abort();
   };
 
   const getNodePosition = (id: number) => {
@@ -3350,7 +3412,6 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
       </div>
     );
   }
-
   return (
     <div className={`flex min-h-screen w-full text-legal-text font-sans overflow-hidden relative bg-legal-bg ${isRemoveMode ? 'cursor-crosshair' : ''}`}>
       <div className="absolute inset-0 container-bg z-0"></div>
@@ -3599,6 +3660,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           }}
           messages={messages}
           onSendMessage={handleSendMessage}
+          onStopResponse={handleStopResponse}
           isLoading={isLoading}
           suggestActions={suggestActions}
           onToggleSuggestActions={() => setSuggestActions((v) => !v)}

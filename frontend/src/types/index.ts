@@ -84,11 +84,14 @@ export type WallAnalyzeResponse = {
 
 // Chat Types
 export type ChatMessage = {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   hasConflict?: boolean;
   conflictDetail?: string;
   preservedTerms?: string[];
+  sources?: string[];
+  suggestedActions?: string[];
 };
 
 // Icon and UI Types

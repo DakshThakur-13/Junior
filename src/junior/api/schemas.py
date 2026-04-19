@@ -125,6 +125,14 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional output script preference for Indic languages (native script or Romanized).",
     )
+    use_research: Optional[bool] = Field(
+        default=None,
+        description="Optional explicit switch for deeper legal research mode.",
+    )
+    suggest_actions: bool = Field(
+        default=True,
+        description="Whether the assistant should suggest practical next actions.",
+    )
     protocol_id: Optional[str] = Field(default=None, description="Optional lawyer protocol id (e.g., criminal_anticipatory_bail_438)")
 
 class ChatResponse(BaseModel):

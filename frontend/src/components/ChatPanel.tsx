@@ -10,6 +10,7 @@ export function ChatPanel(props: {
   toggleChat: () => void;
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
+  onStopResponse: () => void;
   isLoading: boolean;
   suggestActions: boolean;
   onToggleSuggestActions: () => void;
@@ -27,6 +28,12 @@ export function ChatPanel(props: {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const quickPrompts = [
+    'Summarize my current case and list top 3 risks.',
+    'What evidence gaps should I fill before filing?',
+    'Draft a concise next-hearing prep checklist.',
+  ];
 
   const canUseMic = useMemo(() => {
     return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
@@ -211,7 +218,7 @@ export function ChatPanel(props: {
 
       <div className="flex-1 overflow-y-auto p-5 space-y-6">
         {props.messages.map((msg, idx) => (
-          <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+          <div key={msg.id ?? idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
             <div
               className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 shadow-md border ${
                 msg.role === 'user'
@@ -245,6 +252,42 @@ export function ChatPanel(props: {
                 <p className="leading-relaxed whitespace-pre-wrap">
                   {props.renderMessageContent ? props.renderMessageContent(msg.content, msg) : msg.content}
                 </p>
+                {msg.role === 'assistant' && Array.isArray(msg.sources) && msg.sources.length > 0 && (
+                  <div className="mt-3 border-t border-white/10 pt-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Sources</div>
+                    <div className="flex flex-col gap-1">
+                      {msg.sources.slice(0, 3).map((src) => (
+                        <a
+                          key={src}
+                          href={src}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-legal-gold hover:underline break-all"
+                        >
+                          {src}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {msg.role === 'assistant' && Array.isArray(msg.suggestedActions) && msg.suggestedActions.length > 0 && (
+                  <div className="mt-3 border-t border-white/10 pt-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Suggested next steps</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {msg.suggestedActions.slice(0, 3).map((action) => (
+                        <button
+                          key={action}
+                          type="button"
+                          onClick={() => props.onSendMessage(action)}
+                          disabled={props.isLoading || isTranscribing}
+                          className="text-[10px] px-2 py-1 rounded-md border border-white/10 text-slate-300 hover:text-legal-gold hover:border-legal-gold/40 disabled:opacity-50"
+                        >
+                          {action}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {/* Translate button for assistant messages */}
                 {msg.role === 'assistant' && msg.content && (
                   <button
@@ -303,6 +346,21 @@ export function ChatPanel(props: {
       </div>
 
       <div className="p-5 border-t border-white/10 bg-legal-surface/80 backdrop-blur-md">
+        {props.suggestActions && !inputValue.trim() && !props.isLoading && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {quickPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => setInputValue(prompt)}
+                className="text-[10px] px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-legal-gold hover:border-legal-gold/40 bg-black/20"
+                title="Use this prompt"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative group">
           <input
             type="text"
@@ -326,17 +384,38 @@ export function ChatPanel(props: {
             >
               {isRecording ? <Square size={18} /> : <Mic size={18} />}
             </button>
-            <button className="p-2 text-slate-500 hover:text-legal-gold transition-colors rounded-lg hover:bg-white/5" title="Attach" aria-label="Attach">
+            <button
+              type="button"
+              onClick={() => attachInputRef.current?.click()}
+              className="p-2 text-slate-500 hover:text-legal-gold transition-colors rounded-lg hover:bg-white/5"
+              title="Attach"
+              aria-label="Attach"
+            >
               <Paperclip size={18} />
             </button>
+            <input
+              ref={attachInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              aria-label="Attach files"
+              title="Attach files"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (!files.length) return;
+                const names = files.map((f) => f.name).join(', ');
+                setInputValue((prev) => (prev ? `${prev}\n[Attached: ${names}]` : `[Attached: ${names}]`));
+                e.currentTarget.value = '';
+              }}
+            />
             <button
-              onClick={handleSend}
-              disabled={props.isLoading || isTranscribing || !inputValue.trim()}
+              onClick={props.isLoading ? props.onStopResponse : handleSend}
+              disabled={isTranscribing || (!props.isLoading && !inputValue.trim())}
               className="p-2 bg-legal-gold/10 text-legal-gold hover:bg-legal-gold/20 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-legal-gold/20"
-              title="Send"
-              aria-label="Send"
+              title={props.isLoading ? 'Stop response' : 'Send'}
+              aria-label={props.isLoading ? 'Stop response' : 'Send'}
             >
-              <Send size={18} />
+              {props.isLoading ? <Square size={18} /> : <Send size={18} />}
             </button>
           </div>
         </div>
