@@ -26,7 +26,7 @@ except ImportError:
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 PORT = 8000
-STARTUP_TIMEOUT = 20   # seconds to wait for uvicorn to bind
+STARTUP_TIMEOUT = 45   # seconds to wait for uvicorn to bind
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -59,9 +59,13 @@ def free_port(port: int) -> None:
         return
     for proc in psutil.process_iter(["pid", "name"]):
         try:
+            pid = int(proc.info.get("pid") or 0)
+            # Never attempt to terminate system/idle process or this launcher process.
+            if pid in (0, os.getpid()):
+                continue
             for conn in proc.net_connections():
                 if conn.laddr.port == port:
-                    print(f"   Stopping {proc.info['name']} (PID {proc.info['pid']}) on :{port}")
+                    print(f"   Stopping {proc.info['name']} (PID {pid}) on :{port}")
                     proc.terminate()
                     proc.wait(timeout=3)
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
@@ -174,7 +178,7 @@ def main():
     if wait_for_port(PORT):
         print(f"   Ready!")
     else:
-        print(f"   [!] Server did not respond within {STARTUP_TIMEOUT}s — check logs above.")
+        print(f"   [i] Server is still initializing after {STARTUP_TIMEOUT}s; startup logs will continue below.")
 
     print()
     print("=" * 60)
