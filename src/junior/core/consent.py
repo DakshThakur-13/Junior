@@ -2,10 +2,13 @@
 User Consent Management System
 Handles collection, storage, and validation of user consents for GDPR/DPDP compliance
 """
+import logging
 from enum import Enum
 from datetime import datetime
 from typing import Optional, Dict, List
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class ConsentType(str, Enum):
@@ -263,7 +266,63 @@ class ConsentManager:
         return bases.get(consent_type, "Consent (GDPR Art. 6(1)(a))")
     
     async def _save_consent(self, record: ConsentRecord) -> None:
-        """Save consent record to database"""
-        # TODO: Implement database storage
-        # For now, just log it
-        print(f"Consent {record.consent_type.value} {record.status.value} for user {self.user_id}")
+        """Save consent record to database with fallback to local storage"""
+        try:
+            from junior.db import get_supabase_client
+            client = get_supabase_client()
+            
+            # Upsert to Supabase user_consents table
+            consent_data = {
+                "user_id": self.user_id,
+                "consent_type": record.consent_type.value,
+                "status": record.status.value,
+                "granted_at": record.granted_at.isoformat() if record.granted_at else None,
+                "withdrawn_at": record.withdrawn_at.isoformat() if record.withdrawn_at else None,
+                "ip_address": record.ip_address,
+                "user_agent": record.user_agent,
+                "legal_basis": record.legal_basis,
+                "version": record.version,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            result = await client.table("user_consents").upsert(
+                consent_data,
+                on_conflict="user_id,consent_type"
+            ).execute()
+            
+            logger.info(f"Consent saved to Supabase for user {self.user_id}: {record.consent_type.value}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save consent to Supabase: {e}. Using local fallback.")
+            
+            # Fallback: save to local JSON file
+            try:
+                from pathlib import Path
+                consent_dir = Path("uploads") / "consents"
+                consent_dir.mkdir(parents=True, exist_ok=True)
+                
+                consent_file = consent_dir / f"{self.user_id}_consents.json"
+                
+                # Load existing consents or create new
+                consents = {}
+                if consent_file.exists():
+                    import json
+                    with open(consent_file, 'r') as f:
+                        consents = json.load(f)
+                
+                # Update with new record
+                consents[record.consent_type.value] = {
+                    "status": record.status.value,
+                    "granted_at": record.granted_at.isoformat() if record.granted_at else None,
+                    "withdrawn_at": record.withdrawn_at.isoformat() if record.withdrawn_at else None,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                
+                import json
+                with open(consent_file, 'w') as f:
+                    json.dump(consents, f, indent=2)
+                
+                logger.info(f"Consent saved to local storage for user {self.user_id}: {record.consent_type.value}")
+                
+            except Exception as e2:
+                logger.error(f"Failed to save consent even to local storage: {e2}")

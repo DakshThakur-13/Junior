@@ -5,6 +5,24 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './styles.css';
 
+const originalFetch = window.fetch.bind(window);
+
+window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const token = localStorage.getItem('jr_authToken');
+  if (!token) {
+    return originalFetch(input, init);
+  }
+
+  const req = input instanceof Request ? input : new Request(input, init);
+  const headers = new Headers(req.headers);
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const authedReq = new Request(req, { headers });
+  return originalFetch(authedReq);
+};
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

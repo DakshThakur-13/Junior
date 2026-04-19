@@ -68,14 +68,20 @@ class DataCleanupService:
         return results
     
     async def cleanup_temp_files(self) -> int:
-        """Delete temporary uploaded files older than retention period"""
-        if not self.uploads_dir.exists():
+        """Delete temporary uploaded files older than retention period
+        
+        IMPORTANT: Only scans uploads/temp/ directory to prevent accidental
+        deletion of legal documents, audit logs, or other critical data.
+        """
+        temp_dir = self.uploads_dir / "temp"
+        if not temp_dir.exists():
             return 0
         
         cutoff_time = datetime.now() - timedelta(hours=self.policy.TEMP_FILE_RETENTION_HOURS)
         deleted_count = 0
         
-        for file_path in self.uploads_dir.rglob("*"):
+        # Only process temp directory, never scan entire uploads/ tree
+        for file_path in temp_dir.rglob("*"):
             if file_path.is_file():
                 file_age = datetime.fromtimestamp(file_path.stat().st_mtime)
                 if file_age < cutoff_time:
@@ -86,7 +92,7 @@ class DataCleanupService:
                     except Exception as e:
                         logger.error(f"Failed to delete {file_path}: {e}")
         
-        logger.info(f"Deleted {deleted_count} temporary files older than {self.policy.TEMP_FILE_RETENTION_HOURS}h")
+        logger.info(f"Deleted {deleted_count} temporary files from uploads/temp/ older than {self.policy.TEMP_FILE_RETENTION_HOURS}h")
         return deleted_count
     
     async def cleanup_old_logs(self) -> int:

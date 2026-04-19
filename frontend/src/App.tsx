@@ -9,11 +9,15 @@ import { ConnectionLine } from './components/DetectiveWall/ConnectionLine';
 import { NodeDetailsPanel } from './components/DetectiveWall/NodeDetailsPanel';
 import { LandingPage } from './views/LandingPage';
 import { CaseSelection } from './views/CaseSelection';
+import { AuthPage } from './views/AuthPage';
 import {
   AlertTriangle,
   ChevronRight,
+  ExternalLink,
   Gavel,
+  Loader2,
   MessageSquare,
+  Eye,
   Plus,
   ShieldAlert,
   Sparkles,
@@ -41,6 +45,21 @@ import type {
 
 type ChatLanguage = 'en' | 'hi' | 'mr' | 'hi-latn';
 type OutputScript = 'native' | 'roman';
+
+type DraftQualityIssue = {
+  code: string;
+  severity: 'low' | 'medium' | 'high' | string;
+  message: string;
+  recommendation: string;
+};
+
+type DraftQualityResponse = {
+  score: number;
+  confidence: string;
+  issues: DraftQualityIssue[];
+  checklist: Record<string, boolean>;
+  ai_disclaimer?: string;
+};
 
 type GlossaryResponse = {
   term?: string;
@@ -160,6 +179,7 @@ function DraftingStudio() {
   const [slashQuery, setSlashQuery] = useState('');
   const [criticOpen, setCriticOpen] = useState(false);
   const [criticOutput, setCriticOutput] = useState<string>('');
+  const [qualityCheck, setQualityCheck] = useState<DraftQualityResponse | null>(null);
   const [isDictating, setIsDictating] = useState(false);
 
   const [citationStatusByLine, setCitationStatusByLine] = useState<Record<number, ShepardizeResult>>({});
@@ -604,6 +624,29 @@ function DraftingStudio() {
     }
   };
 
+  const handleQualityCheck = async () => {
+    setError(null);
+    setIsWorking(true);
+    try {
+      const res = await fetch('/api/v1/format/quality-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeRequestBody()),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || 'Quality check failed');
+      }
+      const data = (await res.json()) as DraftQualityResponse;
+      setQualityCheck(data);
+    } catch {
+      setError('Could not run draft quality check.');
+      setQualityCheck(null);
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
   return (
     <div className="flex-1 relative overflow-auto lg:overflow-hidden">
       <div className="absolute inset-0 container-bg z-0" />
@@ -653,6 +696,13 @@ function DraftingStudio() {
                   className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-bold tracking-wider disabled:opacity-50 transition-colors"
                 >
                   {isDictating ? 'DICTATING…' : 'DICTATE'}
+                </button>
+                <button
+                  onClick={handleQualityCheck}
+                  disabled={isWorking || !content.trim()}
+                  className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-bold tracking-wider disabled:opacity-50 transition-colors"
+                >
+                  QUALITY CHECK
                 </button>
                 <button
                   onClick={handleReviewDraft}
@@ -795,6 +845,33 @@ function DraftingStudio() {
             {error && (
               <div className="mt-3 bg-rose-950/40 border border-rose-900/50 rounded-lg p-3 text-xs text-rose-200">
                 {error}
+              </div>
+            )}
+
+            {qualityCheck && (
+              <div className="mt-3 bg-black/30 border border-white/10 rounded-lg p-3 text-xs text-slate-200">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-semibold">Draft Quality Score: {qualityCheck.score}/100</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Confidence: {qualityCheck.confidence}</div>
+                </div>
+                {qualityCheck.ai_disclaimer && (
+                  <div className="mt-1 text-[10px] text-slate-400">{qualityCheck.ai_disclaimer}</div>
+                )}
+                {qualityCheck.issues?.length ? (
+                  <div className="mt-2 space-y-2 max-h-28 overflow-auto findings-scroll pr-1">
+                    {qualityCheck.issues.slice(0, 6).map((issue, i) => (
+                      <div key={`${issue.code}-${i}`} className="bg-white/5 border border-white/10 rounded-md p-2">
+                        <div className="text-[11px] font-medium text-slate-100">
+                          {issue.message}
+                          <span className="ml-2 text-[10px] uppercase text-slate-400">{issue.severity}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{issue.recommendation}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-[11px] text-emerald-300">No major structural issues detected.</div>
+                )}
               </div>
             )}
           </div>
@@ -1072,9 +1149,72 @@ type JudgeAnalyticsResponse = {
   total_cases_analyzed: number;
   patterns: JudgeAnalyticsPattern[];
   recommendations: string[];
+  source_provenance?: Array<{
+    title: string;
+    citation: string;
+    year?: number | null;
+    court?: string;
+    case_type?: string;
+    legal_status?: string;
+    source_url?: string;
+    origin?: string;
+    summary?: string;
+    is_landmark?: boolean;
+  }>;
 };
 
-function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
+type CaseTimelineItem = {
+  id: string;
+  date: string;
+  event_type: string;
+  title: string;
+  description?: string;
+  documents?: string[];
+};
+
+type CaseDetailsResponse = {
+  id: string;
+  case_number: string;
+  title: string;
+  court: string;
+  status: string;
+  filing_date: string;
+  timeline: CaseTimelineItem[];
+  subject_matter: string[];
+  acts_sections: string[];
+};
+
+type ListedCaseDocument = {
+  id: string;
+  title: string;
+  date?: string;
+  summary?: string;
+};
+
+type CaseDocumentsResponse = {
+  documents?: ListedCaseDocument[];
+};
+
+type SourcePreview = {
+  title: string;
+  content: string;
+  full_text_length: number;
+  error?: string | null;
+  summary_ai?: string;
+  key_points?: string[];
+  quotes?: string[];
+};
+
+type SourceSearchItem = {
+  id: string;
+  title: string;
+  url?: string;
+};
+
+function StrategyAnalytics(props: {
+  activeCase?: CaseData | null;
+  onAddCitationToWall?: (payload: { title: string; content: string; url?: string; citation: string }) => void;
+}) {
   const [mode, setMode] = useState<AnalyticsMode>('judge');
 
   const [judgeName, setJudgeName] = useState('');
@@ -1093,6 +1233,24 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
   const [devilWorking, setDevilWorking] = useState(false);
   const [devilError, setDevilError] = useState<string | null>(null);
   const [devilResult, setDevilResult] = useState<DevilsAdvocateResponse | null>(null);
+  const [isAutoFillingDevil, setIsAutoFillingDevil] = useState(false);
+  const [devilSaveStatus, setDevilSaveStatus] = useState<string | null>(null);
+  const [devilUsedFallback, setDevilUsedFallback] = useState(false);
+  const [responseDraft, setResponseDraft] = useState<string | null>(null);
+  const [selectedCitationPreview, setSelectedCitationPreview] = useState<null | {
+    citation: string;
+    title: string;
+    url: string;
+  }>(null);
+  const [citationPreviewState, setCitationPreviewState] = useState<
+    | { status: 'idle' }
+    | { status: 'loading'; url: string }
+    | { status: 'ok'; url: string; data: SourcePreview }
+    | { status: 'error'; url: string; message: string }
+  >({ status: 'idle' });
+  const citationPreviewCacheRef = useRef<Map<string, { kind: 'ok'; data: SourcePreview } | { kind: 'error'; message: string }>>(
+    new Map()
+  );
 
   useEffect(() => {
     if (caseSummary.trim()) return;
@@ -1100,6 +1258,195 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
       setCaseSummary(props.activeCase.title);
     }
   }, [props.activeCase?.title, caseSummary]);
+
+  const splitCitations = (raw: string) =>
+    raw
+      .split(/\n+/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  const buildFallbackDevilsAdvocate = (): DevilsAdvocateResponse => {
+    const text = argumentsText.toLowerCase();
+    const points: DevilsAdvocateResponse['attack_points'] = [];
+
+    const hasEvidenceSignal = /(evidence|document|annexure|exhibit|record|proof)/.test(text);
+    const hasReliefSignal = /(relief|prayer|seeking|requested)/.test(text);
+    const hasJurisdictionSignal = /(jurisdiction|maintainab|territorial|pecuniary)/.test(text);
+    const hasTimelineSignal = /(date|timeline|on\s+\d|chronology|sequence)/.test(text);
+
+    if (!hasEvidenceSignal) {
+      points.push({
+        title: 'Evidentiary foundation may be challenged',
+        weakness: 'Argument does not explicitly anchor each key claim to supporting documents or admissible evidence.',
+        suggested_attack: 'Opposing counsel may argue that assertions are speculative and unsupported on record.',
+      });
+    }
+    if (!hasReliefSignal) {
+      points.push({
+        title: 'Relief framing appears under-specified',
+        weakness: 'Requested relief is not clearly scoped with legal basis and practical enforceability.',
+        suggested_attack: 'Opposing counsel may submit that the prayer is vague or beyond jurisdictional competence.',
+      });
+    }
+    if (!hasJurisdictionSignal) {
+      points.push({
+        title: 'Jurisdiction and maintainability vulnerability',
+        weakness: 'No direct maintainability/jurisdiction position is articulated.',
+        suggested_attack: 'Opposing counsel may seek early dismissal on maintainability or forum objections.',
+      });
+    }
+    if (!hasTimelineSignal) {
+      points.push({
+        title: 'Chronology can be attacked for ambiguity',
+        weakness: 'Argument lacks crisp date-wise sequence linking facts to legal consequences.',
+        suggested_attack: 'Opposing counsel may exploit timeline gaps to cast doubt on causation and credibility.',
+      });
+    }
+
+    if (points.length === 0) {
+      points.push({
+        title: 'Counter-precedent exposure check',
+        weakness: 'Even strong submissions can be weakened if opposing side produces a fact-distinguishable higher-court precedent.',
+        suggested_attack: 'Opposing counsel may concede facts but defeat your legal inference through nuanced precedent distinction.',
+      });
+    }
+
+    const score = Math.min(8.5, 2.5 + points.length * 1.3);
+    return {
+      attack_points: points,
+      vulnerability_score: Number(score.toFixed(1)),
+      preparation_recommendations: [
+        'Map every major assertion to one supporting document/exhibit in your written submissions.',
+        'Add a dedicated maintainability/jurisdiction paragraph with authority and fallback position.',
+        'Prepare short oral rebuttals for each identified attack point and keep one alternate precedent ready.',
+      ],
+    };
+  };
+
+  const formatDevilsResultForNote = (data: DevilsAdvocateResponse, fallbackUsed: boolean) => {
+    const lines: string[] = [];
+    lines.push(`Vulnerability Score: ${Number.isFinite(data.vulnerability_score) ? data.vulnerability_score.toFixed(1) : 'N/A'}/10`);
+    lines.push(`Engine: ${fallbackUsed ? 'Fallback Checklist' : 'LLM Devil\'s Advocate'}`);
+    lines.push('');
+    lines.push('Attack Points:');
+    if (data.attack_points?.length) {
+      data.attack_points.forEach((p, idx) => {
+        lines.push(`${idx + 1}. ${p.title || `Attack Point ${idx + 1}`}`);
+        if (p.weakness) lines.push(`   - Weakness: ${p.weakness}`);
+        if (p.counter_citation) lines.push(`   - Counter-citation: ${p.counter_citation}`);
+        if (p.suggested_attack) lines.push(`   - Suggested attack: ${p.suggested_attack}`);
+      });
+    } else {
+      lines.push('1. None');
+    }
+    lines.push('');
+    lines.push('Preparation Recommendations:');
+    if (data.preparation_recommendations?.length) {
+      data.preparation_recommendations.forEach((r, idx) => lines.push(`${idx + 1}. ${r}`));
+    } else {
+      lines.push('1. None');
+    }
+    return lines.join('\n');
+  };
+
+  const persistDevilsResult = async (data: DevilsAdvocateResponse, fallbackUsed: boolean) => {
+    if (!props.activeCase?.id) {
+      setDevilSaveStatus('Result generated (no active case selected, so not saved).');
+      return;
+    }
+
+    const note = formatDevilsResultForNote(data, fallbackUsed);
+    try {
+      const res = await fetch(`/api/v1/cases/${props.activeCase.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: "Devil's Advocate",
+          tag: fallbackUsed ? 'devils_advocate_fallback' : 'devils_advocate',
+          note,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(detail || `Failed to save (${res.status})`);
+      }
+      setDevilSaveStatus('Saved to case notes.');
+    } catch {
+      setDevilSaveStatus('Generated successfully, but could not save to case notes.');
+    }
+  };
+
+  const autoFillDevilsAdvocate = async () => {
+    if (!props.activeCase?.id || !props.activeCase.caseNumber) return;
+
+    setIsAutoFillingDevil(true);
+    try {
+      const [caseRes, docsRes] = await Promise.all([
+        fetch(`/api/v1/cases/${props.activeCase.id}`),
+        fetch(`/api/v1/documents/?case_number=${encodeURIComponent(props.activeCase.caseNumber)}&limit=20`),
+      ]);
+
+      if (!caseRes.ok || !docsRes.ok) {
+        throw new Error('Autofill data unavailable');
+      }
+
+      const caseData = (await caseRes.json()) as CaseDetailsResponse;
+      const docsData = (await docsRes.json()) as CaseDocumentsResponse;
+      const timeline = Array.isArray(caseData.timeline) ? caseData.timeline : [];
+      const documents = Array.isArray(docsData.documents) ? docsData.documents : [];
+
+      const summary = `${caseData.title} (${caseData.case_number}) before ${caseData.court.replace(/_/g, ' ')}; current status: ${caseData.status}.`;
+      setCaseSummary(summary);
+
+      const argumentLines: string[] = [];
+      if (timeline.length) {
+        argumentLines.push('Case chronology and key events:');
+        timeline.slice(0, 8).forEach((event, idx) => {
+          argumentLines.push(
+            `${idx + 1}. ${event.date}: ${event.title}${event.description ? ` - ${event.description}` : ''}`
+          );
+        });
+        argumentLines.push('');
+      }
+
+      if (documents.length) {
+        argumentLines.push('Key record-backed points from available documents:');
+        documents.slice(0, 8).forEach((doc, idx) => {
+          argumentLines.push(
+            `${idx + 1}. ${doc.title}${doc.summary ? ` - ${doc.summary}` : ''}`
+          );
+        });
+        argumentLines.push('');
+      }
+
+      if (Array.isArray(caseData.acts_sections) && caseData.acts_sections.length) {
+        argumentLines.push(`Applicable provisions: ${caseData.acts_sections.slice(0, 6).join(', ')}`);
+      }
+
+      if (Array.isArray(caseData.subject_matter) && caseData.subject_matter.length) {
+        argumentLines.push(`Subject focus: ${caseData.subject_matter.slice(0, 6).join(', ')}`);
+      }
+
+      setArgumentsText(argumentLines.join('\n').trim());
+
+      const citationLines = documents
+        .slice(0, 10)
+        .map((doc) => `${doc.title}${doc.date ? ` (${doc.date})` : ''}`)
+        .filter(Boolean);
+      setCitationsRaw(citationLines.join('\n'));
+    } catch {
+      // Keep manual input path if autofill cannot load
+    } finally {
+      setIsAutoFillingDevil(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mode !== 'devils') return;
+    if (!props.activeCase?.id || !props.activeCase.caseNumber) return;
+    if (caseSummary.trim() || argumentsText.trim() || citationsRaw.trim()) return;
+    void autoFillDevilsAdvocate();
+  }, [mode, props.activeCase?.id, props.activeCase?.caseNumber]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1165,15 +1512,11 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
     }
   };
 
-  const splitCitations = (raw: string) =>
-    raw
-      .split(/\n+/g)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
   const runDevilsAdvocate = async () => {
     setDevilError(null);
     setDevilResult(null);
+    setDevilUsedFallback(false);
+    setDevilSaveStatus(null);
 
     if (!caseSummary.trim()) {
       setDevilError('Enter a case summary.');
@@ -1185,6 +1528,7 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
     }
 
     setDevilWorking(true);
+    let allowFallback = false;
     try {
       const res = await fetch('/api/v1/research/devils-advocate', {
         method: 'POST',
@@ -1198,13 +1542,25 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
 
       if (!res.ok) {
         const detail = await res.text();
+        allowFallback = res.status >= 500 || res.status === 503;
         throw new Error(detail || `API error: ${res.status}`);
       }
 
       const data = (await res.json()) as DevilsAdvocateResponse;
       setDevilResult(data);
-    } catch {
-      setDevilError("Devil's Advocate is unavailable (missing LLM config or backend not running).");
+      await persistDevilsResult(data, false);
+    } catch (err) {
+      // Strict fallback: only when backend/LLM is unavailable, not for normal validation issues.
+      if (allowFallback || err instanceof TypeError || err instanceof SyntaxError) {
+        const fallback = buildFallbackDevilsAdvocate();
+        setDevilUsedFallback(true);
+        setDevilResult(fallback);
+        setDevilError("Live Devil's Advocate is unavailable, showing strict fallback checklist.");
+        await persistDevilsResult(fallback, true);
+      } else {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        setDevilError(`Devil's Advocate failed: ${message}`);
+      }
     } finally {
       setDevilWorking(false);
     }
@@ -1231,6 +1587,123 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
     }
   };
 
+  const buildResponseDraft = (attack: DevilsAdvocateResponse['attack_points'][number], index: number) => {
+    return [
+      `RESPONSE DRAFT - Attack ${index + 1}`,
+      '',
+      `Issue: ${attack.title || `Attack Point ${index + 1}`}`,
+      '',
+      `Opponent's likely attack: ${attack.suggested_attack || attack.weakness || 'To be articulated based on pleadings.'}`,
+      '',
+      'Proposed rebuttal:',
+      '1. Facts on record:',
+      '2. Applicable legal position:',
+      '3. Distinguish adverse authority:',
+      `4. Our supporting citation: ${attack.counter_citation || 'Insert controlling precedent'}`,
+      '5. Relief and prayer alignment:',
+    ].join('\n');
+  };
+
+  const extractFirstUrl = (input: string) => {
+    const m = input.match(/https?:\/\/[^\s)\]]+/i);
+    return m ? m[0] : null;
+  };
+
+  const resolveCitationUrl = async (citation: string): Promise<{ title: string; url: string } | null> => {
+    const direct = extractFirstUrl(citation);
+    if (direct) return { title: citation.slice(0, 120), url: direct };
+
+    const res = await fetch('/api/v1/research/sources/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: citation, limit: 5 }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { results?: SourceSearchItem[] };
+    const first = (Array.isArray(data.results) ? data.results : []).find((r) => !!r.url);
+    if (!first?.url) return null;
+    return { title: first.title || citation.slice(0, 120), url: first.url };
+  };
+
+  const handleCounterCitationPreview = async (citation: string, attackTitle: string) => {
+    const clean = citation.trim();
+    if (!clean) {
+      setDevilError('No counter-citation text available to preview.');
+      return;
+    }
+
+    try {
+      const resolved = await resolveCitationUrl(clean);
+      if (!resolved?.url) {
+        setDevilError('Could not resolve a previewable source URL for this citation.');
+        return;
+      }
+
+      setSelectedCitationPreview({
+        citation: clean,
+        title: attackTitle || resolved.title,
+        url: resolved.url,
+      });
+
+      const cached = citationPreviewCacheRef.current.get(resolved.url);
+      if (cached?.kind === 'ok') {
+        setCitationPreviewState({ status: 'ok', url: resolved.url, data: cached.data });
+        return;
+      }
+      if (cached?.kind === 'error') {
+        setCitationPreviewState({ status: 'error', url: resolved.url, message: cached.message });
+        return;
+      }
+
+      setCitationPreviewState({ status: 'loading', url: resolved.url });
+      const previewRes = await fetch('/api/v1/research/sources/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: resolved.url }),
+      });
+      if (!previewRes.ok) {
+        const detail = await previewRes.text();
+        throw new Error(detail || `Preview error: ${previewRes.status}`);
+      }
+      const preview = await previewRes.json() as SourcePreview;
+      if (preview.error) {
+        citationPreviewCacheRef.current.set(resolved.url, { kind: 'error', message: preview.error });
+        setCitationPreviewState({ status: 'error', url: resolved.url, message: preview.error });
+        return;
+      }
+
+      citationPreviewCacheRef.current.set(resolved.url, { kind: 'ok', data: preview });
+      setCitationPreviewState({ status: 'ok', url: resolved.url, data: preview });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to preview citation source.';
+      const url = selectedCitationPreview?.url || '';
+      if (url) {
+        citationPreviewCacheRef.current.set(url, { kind: 'error', message });
+      }
+      setCitationPreviewState({ status: 'error', url, message });
+    }
+  };
+
+  const addCitationPreviewToWall = () => {
+    if (!selectedCitationPreview) return;
+    if (citationPreviewState.status !== 'ok' || citationPreviewState.url !== selectedCitationPreview.url) return;
+    if (!props.onAddCitationToWall) {
+      setDevilError('Add to wall is unavailable in this view.');
+      return;
+    }
+
+    const preview = citationPreviewState.data;
+    props.onAddCitationToWall({
+      title: preview.title || selectedCitationPreview.title,
+      content: preview.summary_ai || preview.content || selectedCitationPreview.citation,
+      url: selectedCitationPreview.url,
+      citation: selectedCitationPreview.citation,
+    });
+    setDevilSaveStatus('Citation added to wall as a precedent node.');
+    setSelectedCitationPreview(null);
+    setCitationPreviewState({ status: 'idle' });
+  };
+
   const exportResults = () => {
     if (mode === 'judge' && result) {
       const text = `JUDGE ANALYTICS REPORT
@@ -1238,6 +1711,11 @@ function StrategyAnalytics(props: { activeCase?: CaseData | null }) {
 
 Judge: ${result.judge_name}
 Cases Analyzed: ${result.total_cases_analyzed}
+
+SOURCES USED:
+${result.source_provenance?.length
+  ? result.source_provenance.map((s, i) => `${i + 1}. ${s.title} | ${s.citation}${s.year ? ` (${s.year})` : ''}${s.origin ? ` | ${s.origin}` : ''}`).join('\n')
+  : 'None'}
 
 PATTERNS:
 ${result.patterns.map((p, i) => `
@@ -1288,14 +1766,16 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
       setCitationsRaw('');
       setDevilResult(null);
       setDevilError(null);
+      setDevilSaveStatus(null);
+      setDevilUsedFallback(false);
     }
   };
 
   return (
-    <div className="flex-1 relative overflow-auto lg:overflow-hidden">
+    <div className="flex-1 h-full min-h-0 relative overflow-hidden">
       <div className="absolute inset-0 container-bg z-0" />
-      <div className="relative z-10 flex flex-col lg:flex-row min-h-full">
-        <div className="w-full lg:w-1/2 min-w-0 lg:min-w-[520px] glass-panel border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col">
+      <div className="relative z-10 flex h-full min-h-0 flex-col lg:flex-row">
+        <div className="w-full lg:w-1/2 min-w-0 lg:min-w-[520px] min-h-0 glass-panel border-b lg:border-b-0 lg:border-r border-white/10 flex flex-col">
           <div className="p-4 border-b border-white/10 bg-gradient-to-r from-slate-800/40 to-slate-900/40">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1490,7 +1970,17 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
             ) : (
               <>
                 <div className="mt-4 px-4">
-                  <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Case Summary</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Case Summary</div>
+                    <button
+                      type="button"
+                      onClick={() => void autoFillDevilsAdvocate()}
+                      disabled={isAutoFillingDevil || !props.activeCase?.id || !props.activeCase?.caseNumber}
+                      className="text-[10px] px-2 py-1 rounded-md border border-white/15 bg-white/5 text-slate-300 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {isAutoFillingDevil ? 'AUTO-FILLING…' : 'AUTO-FILL'}
+                    </button>
+                  </div>
                   <input
                     value={caseSummary}
                     onChange={(e) => setCaseSummary(e.target.value)}
@@ -1540,6 +2030,12 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                     </button>
                   </div>
                 )}
+
+                {devilSaveStatus && (
+                  <div className="mt-3 mx-4 bg-emerald-950/25 border border-emerald-900/40 rounded-lg p-3">
+                    <div className="text-xs text-emerald-200">{devilSaveStatus}</div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1574,7 +2070,7 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
           </div>
         </div>
 
-        <div className="w-full lg:flex-1 bg-black/20 backdrop-blur-xl p-5 overflow-hidden flex flex-col">
+        <div className="w-full lg:flex-1 min-h-0 bg-black/20 backdrop-blur-xl p-5 overflow-hidden flex flex-col">
           <div className="flex items-center justify-between mb-3 shrink-0">
             <div>
               <h4 className="text-sm font-bold text-white">Findings</h4>
@@ -1586,7 +2082,7 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2 findings-scroll">
+          <div className="flex-1 min-h-0 overflow-y-scroll space-y-3 pr-2 findings-scroll">
             {mode === 'judge' ? (
               <>
                 {isWorking && (
@@ -1665,6 +2161,48 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                         </div>
                       </div>
                     </div>
+
+                    {result.source_provenance?.length ? (
+                      <div className="bg-black/20 border border-white/10 rounded-xl p-4">
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Sources Used</div>
+                          <div className="text-[10px] text-slate-500">{result.source_provenance.length} records</div>
+                        </div>
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1 findings-scroll">
+                          {result.source_provenance.slice(0, 12).map((source, idx) => (
+                            <div key={idx} className="border border-white/10 rounded-lg p-3 bg-white/5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-xs text-slate-200 font-semibold truncate">{source.title}</div>
+                                  <div className="text-[11px] text-slate-400 mt-1 truncate">
+                                    {source.citation}{source.year ? ` • ${source.year}` : ''}{source.court ? ` • ${source.court}` : ''}
+                                  </div>
+                                </div>
+                                <span className="text-[10px] px-2 py-1 rounded-full border border-white/10 bg-black/20 text-slate-300 capitalize">
+                                  {source.origin || 'corpus'}
+                                </span>
+                              </div>
+                              {source.summary && (
+                                <div className="mt-2 text-[11px] text-slate-400 leading-relaxed">
+                                  {source.summary}
+                                </div>
+                              )}
+                              {source.source_url && (
+                                <a
+                                  href={source.source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-[10px] text-legal-gold hover:text-amber-300"
+                                >
+                                  <ExternalLink size={10} />
+                                  Open source
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="bg-black/20 border border-white/10 rounded-xl p-4">
                       <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase mb-3">Patterns</div>
@@ -1783,6 +2321,45 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                 )}
                 {!devilWorking && devilResult && (
                   <>
+                    {devilUsedFallback && (
+                      <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-xs text-amber-200">
+                        Running on fallback mode because live Devil's Advocate was unavailable.
+                      </div>
+                    )}
+
+                    {responseDraft && (
+                      <div className="bg-black/20 border border-white/10 rounded-xl p-4">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="text-[10px] text-slate-500 font-bold tracking-wider uppercase">Response Workbench</div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => void copyToClipboard(responseDraft)}
+                              className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
+                            >
+                              Copy
+                            </button>
+                            <button
+                              onClick={() => {
+                                setArgumentsText((prev) => (prev.trim() ? `${prev}\n\n${responseDraft}` : responseDraft));
+                                setDevilSaveStatus('Response draft added to Your Arguments.');
+                              }}
+                              className="text-[10px] px-2 py-1 bg-legal-gold/20 hover:bg-legal-gold/30 border border-legal-gold/30 rounded text-legal-gold transition-colors"
+                            >
+                              Use In Arguments
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          value={responseDraft}
+                          onChange={(e) => setResponseDraft(e.target.value)}
+                          title="Response workbench draft"
+                          aria-label="Response workbench draft"
+                          placeholder="Generated response draft"
+                          className="w-full h-36 resize-y glass-input rounded-lg px-3 py-2 text-xs text-slate-200 leading-relaxed outline-none"
+                        />
+                      </div>
+                    )}
+
                     {/* Quick Summary */}
                     <div className="bg-gradient-to-br from-rose-500/10 to-red-900/10 border border-rose-400/20 rounded-xl p-4">
                       <div className="flex items-start justify-between gap-4">
@@ -1895,8 +2472,25 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                                 
                                 {p.counter_citation && (
                                   <div className="mt-2 bg-black/20 rounded-lg p-2 border border-white/5">
-                                    <div className="text-[10px] text-slate-500 font-semibold mb-1">📖 Counter-Citation:</div>
-                                    <div className="text-xs text-blue-300 leading-relaxed font-mono">{p.counter_citation}</div>
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                      <div className="text-[10px] text-slate-500 font-semibold">📖 Counter-Citation:</div>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleCounterCitationPreview(p.counter_citation || '', p.title || `Attack Point ${idx + 1}`)}
+                                        className="text-[10px] px-2 py-1 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-all inline-flex items-center gap-1"
+                                      >
+                                        <Eye size={10} />
+                                        Preview
+                                      </button>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleCounterCitationPreview(p.counter_citation || '', p.title || `Attack Point ${idx + 1}`)}
+                                      className="text-left w-full text-xs text-blue-300 leading-relaxed font-mono hover:text-blue-200 transition-colors"
+                                      title="Preview citation source"
+                                    >
+                                      {p.counter_citation}
+                                    </button>
                                   </div>
                                 )}
                                 
@@ -1914,11 +2508,11 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
                                     📋 Copy
                                   </button>
                                   <button
-                                    onClick={() =>
-                                      copyToClipboard(
-                                        `Draft Response Template\n\nIssue: ${p.title || `Attack Point ${idx + 1}`}\n\nOpponent's likely attack: ${p.suggested_attack || 'N/A'}\n\nOur response:\n1) Clarify facts:\n2) Distinguish precedent:\n3) Cite authority: ${p.counter_citation || 'Add relevant citation'}\n4) Relief sought:`
-                                      )
-                                    }
+                                    onClick={() => {
+                                      const draft = buildResponseDraft(p, idx);
+                                      setResponseDraft(draft);
+                                      setDevilSaveStatus('Response draft generated in workbench.');
+                                    }}
                                     className="text-[10px] px-2 py-1 bg-slate-800/50 hover:bg-slate-700 border border-slate-700 rounded text-slate-300 transition-colors"
                                     title="Draft a response"
                                   >
@@ -1953,6 +2547,96 @@ ${devilResult.preparation_recommendations?.map((r, i) => `${i + 1}. ${r}`).join(
           </div>
         </div>
       </div>
+
+      {selectedCitationPreview && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-[1px] z-[70] flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[85vh] bg-slate-950 border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3 bg-white/5">
+              <div className="min-w-0">
+                <h4 className="text-sm font-semibold text-slate-100 truncate">{selectedCitationPreview.title}</h4>
+                <p className="text-[11px] text-legal-gold/70 truncate mt-1">
+                  {selectedCitationPreview.url.replace(/^https?:\/\//, '')}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedCitationPreview(null);
+                  setCitationPreviewState({ status: 'idle' });
+                }}
+                className="text-slate-400 hover:text-white transition-colors"
+                title="Close Preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              {citationPreviewState.status === 'loading' && selectedCitationPreview.url === citationPreviewState.url && (
+                <div className="py-12 flex flex-col items-center gap-2 text-slate-400">
+                  <Loader2 size={20} className="animate-spin" />
+                  <p className="text-sm">Fetching preview and extracting key content...</p>
+                </div>
+              )}
+
+              {citationPreviewState.status === 'error' && selectedCitationPreview.url === citationPreviewState.url && (
+                <div className="p-4 rounded-lg border border-red-500/20 bg-red-500/10 text-red-200 text-sm">
+                  {citationPreviewState.message}
+                </div>
+              )}
+
+              {citationPreviewState.status === 'ok' && selectedCitationPreview.url === citationPreviewState.url && (
+                <>
+                  {citationPreviewState.data.summary_ai && (
+                    <div className="p-4 rounded-lg border border-legal-gold/20 bg-legal-gold/10">
+                      <h5 className="text-xs font-bold text-legal-gold mb-2 uppercase tracking-wide">AI Summary</h5>
+                      <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{citationPreviewState.data.summary_ai}</p>
+                    </div>
+                  )}
+
+                  {citationPreviewState.data.key_points && citationPreviewState.data.key_points.length > 0 && (
+                    <div className="p-4 rounded-lg border border-white/10 bg-white/5">
+                      <h5 className="text-xs font-bold text-slate-300 mb-2 uppercase tracking-wide">Key Points</h5>
+                      <ul className="list-disc list-inside space-y-1 text-sm text-slate-300">
+                        {citationPreviewState.data.key_points.map((p, i) => (
+                          <li key={i}>{p}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="p-4 rounded-lg border border-white/10 bg-slate-900/70">
+                    <h5 className="text-xs font-bold text-slate-300 mb-2 uppercase tracking-wide">Extracted Content</h5>
+                    <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
+                      {citationPreviewState.data.content || 'No preview text extracted.'}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-white/10 bg-white/5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={addCitationPreviewToWall}
+                disabled={citationPreviewState.status !== 'ok' || citationPreviewState.url !== selectedCitationPreview.url}
+                className="text-xs px-3 py-1.5 rounded-md border border-legal-gold/30 bg-legal-gold/10 text-legal-gold hover:bg-legal-gold/20 transition-all inline-flex items-center gap-1 disabled:opacity-50"
+              >
+                <Plus size={12} />
+                Add To Wall
+              </button>
+              <a
+                href={selectedCitationPreview.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs px-3 py-1.5 rounded-md border border-white/10 bg-black/20 text-slate-300 hover:text-legal-gold hover:border-legal-gold/30 transition-all inline-flex items-center gap-1"
+              >
+                <ExternalLink size={12} />
+                Open Original
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2071,6 +2755,39 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const caseId = props.activeCase?.id ? String(props.activeCase.id) : 'default';
   const caseTitle = props.activeCase?.title ?? 'Current Matter';
   const caseNumber = props.activeCase?.caseNumber ?? '';
+
+  const handleAddCitationToWall = useCallback((payload: { title: string; content: string; url?: string; citation: string }) => {
+    setNodes((prev) => {
+      const nextId = prev.length ? Math.max(...prev.map((n) => n.id)) + 1 : 1;
+      const baseX = window.innerWidth / 2 - 160;
+      const baseY = window.innerHeight / 2 - 120;
+      const spread = (nextId % 5) * 34;
+
+      const next: NodeData = {
+        id: nextId,
+        title: payload.title || 'Counter Citation',
+        type: 'Precedent',
+        date: new Date().toLocaleDateString('en-IN'),
+        status: 'Verified',
+        x: baseX + spread,
+        y: baseY + spread,
+        rotation: (nextId % 6) - 3,
+        pinColor: 'blue',
+        source: 'Counter Citation',
+        caseNumber,
+        content: payload.content || payload.citation,
+        attachments: [
+          {
+            name: payload.citation,
+            kind: 'document',
+            url: payload.url,
+          },
+        ],
+      };
+
+      return [...prev, next];
+    });
+  }, [caseNumber]);
   const chatStorageKey = useMemo(() => `junior:chat:${caseId}`, [caseId]);
   const loadStoredMessages = useCallback(
     (key: string): ChatMessage[] | null => {
@@ -2618,9 +3335,9 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
 
   if (activeTab === 'strategy') {
     return (
-      <div className="flex min-h-screen w-full text-legal-text font-sans overflow-hidden relative bg-legal-bg">
+      <div className="flex h-screen min-h-screen w-full text-legal-text font-sans overflow-hidden relative bg-legal-bg">
         <RadialMenu activeTab={activeTab} setActiveTab={setActiveTab} onBack={props.onBack} />
-        <StrategyAnalytics activeCase={props.activeCase} />
+        <StrategyAnalytics activeCase={props.activeCase} onAddCitationToWall={handleAddCitationToWall} />
       </div>
     );
   }
@@ -2908,11 +3625,53 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
 }
 
 export default function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('jr_authToken'));
+  const [authUser, setAuthUser] = useState<{ id: string; email: string; name?: string; role?: string } | null>(() => {
+    const raw = localStorage.getItem('jr_authUser');
+    return raw ? (JSON.parse(raw) as { id: string; email: string; name?: string; role?: string }) : null;
+  });
   const [view, setView] = useState<View>('landing');
   const [activeCase, setActiveCase] = useState<CaseData | null>(() => {
     const saved = localStorage.getItem('jr_activeCase');
     return saved ? (JSON.parse(saved) as CaseData) : null;
   });
+
+  useEffect(() => {
+    const verifyAuth = async () => {
+      if (!authToken) {
+        setAuthChecked(true);
+        setView('auth');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/v1/auth/me', {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) throw new Error('invalid token');
+        const user = await res.json();
+        const normalized = {
+          id: String(user.id),
+          email: String(user.email),
+          name: user.name ? String(user.name) : undefined,
+          role: user.role ? String(user.role) : undefined,
+        };
+        setAuthUser(normalized);
+        localStorage.setItem('jr_authUser', JSON.stringify(normalized));
+      } catch {
+        localStorage.removeItem('jr_authToken');
+        localStorage.removeItem('jr_authUser');
+        setAuthToken(null);
+        setAuthUser(null);
+        setView('auth');
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+
+    void verifyAuth();
+  }, [authToken]);
 
   useEffect(() => {
     if (activeCase) localStorage.setItem('jr_activeCase', JSON.stringify(activeCase));
@@ -2939,8 +3698,45 @@ export default function App() {
 
   const handleBack = () => setView('selection');
 
+  const handleAuthenticated = (token: string, user: { id: string; email: string; name?: string; role?: string }) => {
+    localStorage.setItem('jr_authToken', token);
+    localStorage.setItem('jr_authUser', JSON.stringify(user));
+    setAuthToken(token);
+    setAuthUser(user);
+    setView('landing');
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem('jr_authToken');
+    localStorage.removeItem('jr_authUser');
+    localStorage.removeItem('jr_activeCase');
+    setAuthToken(null);
+    setAuthUser(null);
+    setActiveCase(null);
+    setView('auth');
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen w-full bg-legal-bg text-legal-text flex items-center justify-center">
+        <div className="text-sm text-slate-400">Checking authentication...</div>
+      </div>
+    );
+  }
+
+  if (!authToken || !authUser || view === 'auth') {
+    return <AuthPage onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
     <>
+      <button
+        type="button"
+        onClick={handleSignOut}
+        className="fixed top-4 right-4 z-[200] rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-slate-300 hover:text-white"
+      >
+        Sign Out
+      </button>
       {view === 'landing' && <LandingPage onEnter={handleEnter} />}
       {view === 'selection' && <CaseSelection onSelectCase={handleSelectCase} onNewCase={handleNewCase} />}
       {view === 'wall' && <DetectiveWall onBack={handleBack} activeCase={activeCase} />}

@@ -8,6 +8,10 @@ from pydantic import BaseModel
 from datetime import date, datetime
 from enum import Enum
 import hashlib
+import json
+from pathlib import Path
+
+from junior.services.audit_log import AuditEvent, append_audit_event
 
 
 _DEMO_DOCUMENT_ID_PREFIXES = (
@@ -342,6 +346,100 @@ class CaseListResponse(BaseModel):
     page_size: int
 
 
+class CaseNoteUpsertRequest(BaseModel):
+    note: str
+    title: Optional[str] = None
+    tag: Optional[str] = None
+
+
+def _append_case_note(existing: Optional[str], note: str, title: Optional[str], tag: Optional[str]) -> str:
+    clean_note = note.strip()
+    if not clean_note:
+        return (existing or "").strip()
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    label = title.strip() if title and title.strip() else "Case Note"
+    if tag and tag.strip():
+        label = f"{label} [{tag.strip()}]"
+
+    block = f"{label} ({timestamp})\n{clean_note}"
+    if existing and existing.strip():
+        return f"{existing.strip()}\n\n---\n\n{block}"
+    return block
+
+
+def _save_case_note_local(case_number: str, note: str, title: Optional[str], tag: Optional[str]) -> bool:
+    docs_dir = Path("uploads") / "documents"
+    if not docs_dir.exists():
+        return False
+
+    matching: list[tuple[datetime, Path]] = []
+    for fp in docs_dir.glob("*.json"):
+        try:
+            payload = json.loads(fp.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("case_number") or "").strip() != case_number:
+                continue
+            dt = _safe_date(payload.get("date"))
+            sort_dt = datetime.combine(dt, datetime.min.time()) if dt else datetime.fromtimestamp(fp.stat().st_mtime)
+            matching.append((sort_dt, fp))
+        except Exception:
+            continue
+
+    if not matching:
+        return False
+
+    matching.sort(key=lambda x: x[0], reverse=True)
+    target = matching[0][1]
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    merged_note = _append_case_note(metadata.get("case_note"), note, title, tag)
+    metadata["case_note"] = merged_note
+    payload["metadata"] = metadata
+    target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    return True
+
+
+def _save_case_note_supabase(case_number: str, note: str, title: Optional[str], tag: Optional[str]) -> bool:
+    try:
+        from junior.db.client import get_supabase_client
+
+        client = get_supabase_client()
+        if not client.is_configured:
+            return False
+
+        result = (
+            client.documents
+            .select("id,metadata,judgment_date,created_at")
+            .eq("case_number", case_number)
+            .order("judgment_date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if not rows:
+            return False
+
+        row = rows[0] if isinstance(rows[0], dict) else {}
+        doc_id = row.get("id")
+        if not doc_id:
+            return False
+
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        metadata["case_note"] = _append_case_note(metadata.get("case_note"), note, title, tag)
+
+        (
+            client.documents
+            .update({"metadata": metadata})
+            .eq("id", doc_id)
+            .execute()
+        )
+        return True
+    except Exception:
+        return False
+
+
 
 
 
@@ -505,4 +603,52 @@ async def get_upcoming_hearings(
         "from_date": today,
         "to_date": end_date,
         "hearings": upcoming
+    }
+
+
+@router.post("/{case_id}/notes")
+async def save_case_note(case_id: str, request: CaseNoteUpsertRequest):
+    """Persist a note on the selected case for cross-view reuse (analytics, strategy, etc.)."""
+    note = (request.note or "").strip()
+    if not note:
+        raise HTTPException(status_code=400, detail="Note cannot be empty")
+
+    selected_case = next((c for c in _load_cases() if c.id == case_id), None)
+    if not selected_case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    case_number = selected_case.case_number
+    saved_supabase = _save_case_note_supabase(case_number, note, request.title, request.tag)
+    saved_local = _save_case_note_local(case_number, note, request.title, request.tag)
+
+    if not saved_supabase and not saved_local:
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to persist note for this case in either Supabase or local store",
+        )
+
+    append_audit_event(
+        AuditEvent(
+            event_type="case.note.upsert",
+            actor="advocate",
+            target=f"case:{case_number}",
+            case_id=case_id,
+            details={
+                "title": request.title,
+                "tag": request.tag,
+                "length": len(note),
+                "saved_supabase": saved_supabase,
+                "saved_local": saved_local,
+            },
+        )
+    )
+
+    return {
+        "case_id": case_id,
+        "case_number": case_number,
+        "saved": True,
+        "saved_to": {
+            "supabase": saved_supabase,
+            "local": saved_local,
+        },
     }

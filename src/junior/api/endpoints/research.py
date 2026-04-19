@@ -24,6 +24,7 @@ from junior.api.schemas import (
     LawyerProtocolItem,
 )
 from pydantic import BaseModel
+from junior.services.audit_log import AuditEvent, append_audit_event
 
 class PreviewRequest(BaseModel):
     url: str
@@ -129,13 +130,39 @@ async def research(request: ResearchRequest):
                 )
             )
 
+        confidence_score = float(final_state.get("confidence_score", 0) or 0)
+        confidence_band = "high" if confidence_score >= 0.75 else "medium" if confidence_score >= 0.45 else "low"
+        total_citation_count = len(citations)
+        verified_citation_count = len([c for c in citations if c.status in {"good_law", "distinguished"}])
+        evidence_sufficiency = "sufficient" if verified_citation_count >= 2 and confidence_score >= 0.55 else "limited" if total_citation_count >= 1 else "insufficient"
+
+        append_audit_event(
+            AuditEvent(
+                event_type="research.query",
+                actor="advocate",
+                target="research",
+                details={
+                    "query_length": len(request.query),
+                    "confidence_score": confidence_score,
+                    "confidence_band": confidence_band,
+                    "verified_citation_count": verified_citation_count,
+                    "total_citation_count": total_citation_count,
+                },
+            )
+        )
+
         return ResearchResponse(
             query=request.query,
             summary=result.summary or "Research completed. Please review the findings.",
             citations=citations,
-            confidence_score=float(final_state.get("confidence_score", 0) or 0),
+            confidence_score=confidence_score,
+            confidence_band=confidence_band,
             iterations=int(final_state.get("iteration", 0) or 0),
             processing_time_ms=result.processing_time_ms,
+            evidence_sufficiency=evidence_sufficiency,
+            verified_citation_count=verified_citation_count,
+            total_citation_count=total_citation_count,
+            ai_disclaimer="AI-assisted legal research. Validate all authorities against official court records before filing.",
             trace=trace,
         )
 
@@ -293,10 +320,30 @@ async def devils_advocate(request: DevilsAdvocateRequest):
         if not preparation:
             preparation = ["Prepare counter-arguments for each attack point and shore up evidentiary gaps."]
 
+        confidence_band = "high" if score <= 3.5 else "medium" if score <= 6.5 else "low"
+        evidence_sufficiency = "sufficient" if request.citations and len(request.citations) >= 2 else "limited" if request.citations else "insufficient"
+
+        append_audit_event(
+            AuditEvent(
+                event_type="research.devils_advocate",
+                actor="advocate",
+                target="devils_advocate",
+                details={
+                    "attack_points": len(attack_points),
+                    "vulnerability_score": score,
+                    "confidence_band": confidence_band,
+                    "evidence_sufficiency": evidence_sufficiency,
+                },
+            )
+        )
+
         return DevilsAdvocateResponse(
             attack_points=attack_points,
             vulnerability_score=score,
             preparation_recommendations=preparation,
+            confidence_band=confidence_band,
+            evidence_sufficiency=evidence_sufficiency,
+            ai_disclaimer="AI-assisted adversarial simulation. Use with advocate review before strategy finalization.",
         )
 
     except ConfigurationError as e:

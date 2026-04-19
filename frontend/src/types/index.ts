@@ -5,7 +5,7 @@
 import React from 'react';
 
 // View Types
-export type View = 'landing' | 'selection' | 'wall';
+export type View = 'auth' | 'landing' | 'selection' | 'wall';
 export type ActiveTab = 'dashboard' | 'strategy' | 'drafting';
 export type ToolId = 'research' | 'vault' | 'remove' | null;
 export type AnalyticsMode = 'judge' | 'devils';
@@ -139,4 +139,16 @@ export type JudgeAnalyticsResponse = {
   total_cases_analyzed: number;
   patterns: JudgeAnalyticsPattern[];
   recommendations: string[];
+  source_provenance?: Array<{
+    title: string;
+    citation: string;
+    year?: number | null;
+    court?: string;
+    case_type?: string;
+    legal_status?: string;
+    source_url?: string;
+    origin?: string;
+    summary?: string;
+    is_landmark?: boolean;
+  }>;
 };

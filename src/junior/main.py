@@ -20,6 +20,20 @@ from junior.api import api_router
 
 logger = get_logger(__name__)
 
+
+def _is_weak_secret(secret: str) -> bool:
+    value = (secret or "").strip().lower()
+    if len(value) < 32:
+        return True
+    known_weak = {
+        "change-me",
+        "change-me-in-production",
+        "secret",
+        "password",
+        "default",
+    }
+    return value in known_weak
+
 # Get project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
@@ -36,6 +50,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Environment: {settings.app_env}")
 
+    if _is_weak_secret(settings.app_secret_key):
+        message = "APP_SECRET_KEY is weak. Use a random value with at least 32 characters."
+        if settings.is_production:
+            raise RuntimeError(message)
+        logger.warning(f"⚠️  {message}")
+
     # Verify configurations
     if not settings.groq_api_key:
         logger.warning("⚠️  GROQ_API_KEY not configured - LLM features will not work")
@@ -46,6 +66,25 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️  Supabase not configured - database features will not work")
     else:
         logger.info("✅ Supabase configured")
+        try:
+            from junior.db import get_supabase_client
+
+            sb = get_supabase_client().client
+            required_tables = ["users", "user_consents", "user_deletions", "documents"]
+            missing_tables: list[str] = []
+            for table_name in required_tables:
+                try:
+                    sb.table(table_name).select("*").limit(1).execute()
+                except Exception:
+                    missing_tables.append(table_name)
+
+            if missing_tables:
+                logger.warning(
+                    "⚠️  Missing or inaccessible Supabase tables: %s",
+                    ", ".join(missing_tables),
+                )
+        except Exception as e:
+            logger.warning(f"⚠️  Supabase schema check skipped: {e}")
 
     if settings.enable_pii_redaction:
         logger.info("✅ PII Redaction enabled")

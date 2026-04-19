@@ -14,6 +14,7 @@ from . import cases
 from . import websocket
 from . import audio
 from . import wall
+from . import auth
 
 __all__ = [
     "research",
@@ -28,4 +29,5 @@ __all__ = [
     "websocket",
     "wall",
     "audio",
+    "auth",
 ]

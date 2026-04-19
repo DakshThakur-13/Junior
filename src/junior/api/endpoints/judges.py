@@ -8,6 +8,7 @@ from enum import Enum
 from junior.agents.judge_analytics import JudgeAnalyticsAgent
 from junior.api.schemas import JudgeAnalyticsRequest, JudgeAnalyticsResponse
 from junior.core.exceptions import LLMNotConfiguredError
+from junior.services.judge_corpus import get_judge_corpus_service
 
 router = APIRouter()
 
@@ -90,28 +91,18 @@ async def list_judges(
     """
     List judges with filtering and pagination.
     """
-    # No hardcoded/demo judge data. Populate via your own corpus/DB.
-    filtered: list[JudgeProfile] = []
-    
-    if court_type:
-        filtered = [j for j in filtered if j.court_type == court_type]
-    
-    if status:
-        filtered = [j for j in filtered if j.status == status]
-    
-    if specialization:
-        filtered = [j for j in filtered if specialization in j.specializations]
-    
-    if search:
-        search_lower = search.lower()
-        filtered = [j for j in filtered if search_lower in j.name.lower()]
-    
-    total = len(filtered)
-    start = (page - 1) * page_size
-    end = start + page_size
-    
+    service = get_judge_corpus_service()
+    filtered, total = await service.list_profiles(
+        page=page,
+        page_size=page_size,
+        court_type=court_type.value if court_type else None,
+        status=status.value if status else None,
+        specialization=specialization,
+        search=search,
+    )
+
     return JudgeListResponse(
-        judges=filtered[start:end],
+        judges=filtered,
         total=total,
         page=page,
         page_size=page_size
@@ -123,6 +114,10 @@ async def get_judge(judge_id: str):
     """
     Get detailed judge profile by ID.
     """
+    service = get_judge_corpus_service()
+    profile = await service.get_profile(judge_id)
+    if profile:
+        return JudgeProfile(**profile)
     raise HTTPException(status_code=404, detail="Judge not found")
 
 
@@ -131,25 +126,19 @@ async def search_judges(request: JudgeSearchRequest):
     """
     Advanced search for judges.
     """
-    filtered: list[JudgeProfile] = []
-    
-    if request.courts:
-        filtered = [j for j in filtered if j.court_type in request.courts]
-    
-    if request.specializations:
-        filtered = [j for j in filtered if any(s in j.specializations for s in request.specializations)]
-    
-    if request.status:
-        filtered = [j for j in filtered if j.status == request.status]
-    
-    if request.query:
-        query_lower = request.query.lower()
-        filtered = [j for j in filtered if query_lower in j.name.lower() or 
-                    query_lower in j.judicial_philosophy.lower()]
-    
+    service = get_judge_corpus_service()
+    filtered, total = await service.list_profiles(
+        page=1,
+        page_size=500,
+        court_type=request.courts[0].value if request.courts else None,
+        status=request.status.value if request.status else None,
+        specialization=request.specializations[0] if request.specializations else None,
+        search=request.query,
+    )
+
     return JudgeListResponse(
         judges=filtered,
-        total=len(filtered),
+        total=total,
         page=1,
         page_size=len(filtered)
     )
@@ -164,8 +153,17 @@ async def get_judge_judgments(
     """
     Get list of judgments by a specific judge.
     """
-    # Requires a backing corpus; not served as mock data.
-    raise HTTPException(status_code=404, detail="Judge not found")
+    service = get_judge_corpus_service()
+    judgments = await service.get_judgments(judge_name=judge_id, limit=page_size)
+    if not judgments:
+        raise HTTPException(status_code=404, detail="Judge not found")
+    return {
+        "judge_id": judge_id,
+        "page": page,
+        "page_size": page_size,
+        "total": len(judgments),
+        "judgments": judgments,
+    }
 
 
 @router.get("/{judge_id}/tendencies")
@@ -173,8 +171,11 @@ async def get_judge_tendencies(judge_id: str):
     """
     Get AI-analyzed judicial tendencies for a judge.
     """
-    # Requires a backing corpus; not served as mock data.
-    raise HTTPException(status_code=404, detail="Judge not found")
+    service = get_judge_corpus_service()
+    profile = await service.get_profile(judge_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Judge not found")
+    return profile.get("tendencies", {})
 
 
 @router.post("/analyze", response_model=JudgeAnalyticsResponse)
@@ -184,28 +185,43 @@ async def analyze_judge(request: JudgeAnalyticsRequest):
     If `judgments` is empty, the AI will automatically search for and fetch
     the judge's past judgments based on the provided case type and analyze them.
     """
-    # If no judgments provided, attempt auto-fetch
-    if not request.judgments:
-        if not request.case_type:
-            raise HTTPException(
-                status_code=400,
-                detail="Case type is required when auto-fetching judgments. Please specify case type (e.g., 'Bail Applications', 'IPC 376 Sexual Offenses').",
-            )
-        
-        # For now, return a helpful message since auto-fetch requires external data source
-        # In a full implementation, this would:
-        # 1. Search legal database for judge's past judgments on this case type
-        # 2. Fetch judgment texts
-        # 3. Extract relevant excerpts
-        # 4. Proceed with analysis
-        
+    service = get_judge_corpus_service()
+    judgments = list(request.judgments)
+    source_provenance: list[dict] = []
+    if not judgments:
+        records, source_provenance = await service.get_judgments_with_provenance(
+            judge_name=request.judge_name,
+            court=request.court.value if request.court else None,
+            case_type=request.case_type,
+            limit=request.cases_count or 15,
+        )
+
+        judgments = []
+        for item in records:
+            parts = [
+                f"Title: {item.get('title') or 'Untitled Judgment'}",
+                f"Citation: {item.get('citation') or item.get('case_number') or 'Unknown'}",
+            ]
+            if item.get("year"):
+                parts.append(f"Year: {item.get('year')}")
+            if item.get("court"):
+                parts.append(f"Court: {item.get('court')}")
+            if item.get("case_type"):
+                parts.append(f"Case Type: {item.get('case_type')}")
+            if item.get("legal_status"):
+                parts.append(f"Outcome: {item.get('legal_status')}")
+            if item.get("summary"):
+                parts.append(f"Summary: {item.get('summary')}")
+            if item.get("source_url"):
+                parts.append(f"Source: {item.get('source_url')}")
+            judgments.append("\n".join(parts))
+
+    if not judgments:
         raise HTTPException(
-            status_code=501,
+            status_code=404,
             detail=(
-                f"Auto-fetch feature coming soon! "
-                f"The system will automatically search for {request.judge_name}'s past judgments on '{request.case_type}' "
-                f"{'from ' + request.time_period if request.time_period else ''} and analyze patterns.\n\n"
-                f"For now, please provide judgment excerpts manually, or try the demo mode with sample data."
+                f"No judgment corpus was found for {request.judge_name}. "
+                f"Try a different name or import more judgments into Supabase."
             ),
         )
 
@@ -215,8 +231,8 @@ async def analyze_judge(request: JudgeAnalyticsRequest):
             judge_name=request.judge_name,
             court=request.court.value if request.court else None,
             case_type=request.case_type,
-            judgments=request.judgments,
+            judgments=judgments,
         )
-        return JudgeAnalyticsResponse(**result)
+        return JudgeAnalyticsResponse(**result, source_provenance=source_provenance)
     except LLMNotConfiguredError as e:
         raise HTTPException(status_code=503, detail=str(e))

@@ -4,6 +4,10 @@ Provides endpoints for users to manage their data processing consents
 """
 from fastapi import APIRouter, HTTPException, Header, Request
 from typing import Dict, List, Any
+from datetime import datetime, timedelta
+from junior.core import get_logger
+
+logger = get_logger(__name__)
 from junior.core.consent import (
     ConsentManager,
     ConsentType,
@@ -11,8 +15,10 @@ from junior.core.consent import (
     ConsentRecord,
     DEFAULT_CONSENT_BUNDLE
 )
+from junior.api.endpoints.auth import resolve_user_id
 
-router = APIRouter(prefix="/api/v1/consent", tags=["consent"])
+# Note: Global /api/v1 prefix applied in main.py
+router = APIRouter(prefix="/consent", tags=["consent"])
 
 
 @router.get("/bundle", response_model=ConsentBundle)
@@ -30,13 +36,15 @@ async def get_consent_bundle():
 async def grant_consent(
     consent_type: ConsentType,
     request: Request,
-    user_id: str = Header(..., alias="X-User-ID")
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
 ) -> ConsentRecord:
     """
     Grant a specific consent
     
     Records user consent with IP address and timestamp for audit trail.
     """
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
     # Extract request metadata
@@ -57,7 +65,8 @@ async def grant_consent(
 @router.post("/withdraw/{consent_type}")
 async def withdraw_consent(
     consent_type: ConsentType,
-    user_id: str = Header(..., alias="X-User-ID")
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
 ):
     """
     Withdraw a previously granted consent
@@ -65,6 +74,7 @@ async def withdraw_consent(
     GDPR Article 7(3): Right to withdraw consent at any time.
     Withdrawing required consents will terminate service access.
     """
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
     try:
@@ -82,12 +92,16 @@ async def withdraw_consent(
 
 
 @router.get("/status")
-async def get_consent_status(user_id: str = Header(..., alias="X-User-ID")) -> Dict:
+async def get_consent_status(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
+) -> Dict:
     """
     Get user's current consent status
     
     Returns which consents are granted, denied, or withdrawn.
     """
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
     try:
@@ -98,12 +112,16 @@ async def get_consent_status(user_id: str = Header(..., alias="X-User-ID")) -> D
 
 
 @router.get("/check-required")
-async def check_required_consents(user_id: str = Header(..., alias="X-User-ID")) -> Dict[str, bool]:
+async def check_required_consents(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
+) -> Dict[str, bool]:
     """
     Check if all required consents are granted
     
     Used to verify user can access the service.
     """
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
     try:
@@ -127,13 +145,15 @@ async def check_required_consents(user_id: str = Header(..., alias="X-User-ID"))
 async def grant_consent_bundle(
     consent_types: List[ConsentType],
     request: Request,
-    user_id: str = Header(..., alias="X-User-ID")
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
 ) -> Dict[str, Any]:
     """
     Grant multiple consents at once
     
     Used during onboarding to accept multiple consents together.
     """
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
     ip_address = request.client.host if request.client else None
@@ -170,13 +190,20 @@ async def grant_consent_bundle(
 
 
 @router.delete("/revoke-all")
-async def revoke_all_consents(user_id: str = Header(..., alias="X-User-ID")) -> Dict:
+async def revoke_all_consents(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
+) -> Dict:
     """
     Revoke all consents and request account deletion
     
     GDPR Article 17: Right to erasure ("right to be forgotten").
     This initiates the account deletion process.
     """
+    from junior.services.audit_log import audit_log
+    from datetime import datetime
+    
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
     try:
@@ -185,8 +212,35 @@ async def revoke_all_consents(user_id: str = Header(..., alias="X-User-ID")) -> 
             if await manager.has_consent(consent_type):
                 await manager.withdraw_consent(consent_type)
         
-        # TODO: Trigger account deletion workflow
-        # await trigger_account_deletion(user_id)
+        # Trigger account deletion workflow
+        from junior.db import get_supabase_client
+        try:
+            client = get_supabase_client()
+            
+            # Mark user for deletion in Supabase
+            deletion_data = {
+                "user_id": user_id,
+                "deletion_requested_at": datetime.utcnow().isoformat(),
+                "deletion_scheduled_for": (datetime.utcnow() + timedelta(days=30)).isoformat(),
+                "status": "pending_deletion"
+            }
+            
+            await client.table("user_deletions").upsert(
+                deletion_data,
+                on_conflict="user_id"
+            ).execute()
+            
+            # Audit the deletion request
+            await audit_log(
+                event_type="account_deletion_requested",
+                actor=user_id,
+                target=f"user:{user_id}",
+                details={"reason": "user_revoked_all_consents", "timestamp": datetime.utcnow().isoformat()}
+            )
+            
+        except Exception as e:
+            logger.warning(f"Failed to schedule deletion in Supabase: {e}")
+            # Continue even if database fails - at least consents are withdrawn
         
         return {
             "status": "success",
@@ -199,19 +253,24 @@ async def revoke_all_consents(user_id: str = Header(..., alias="X-User-ID")) -> 
 
 
 @router.get("/export")
-async def export_consent_records(user_id: str = Header(..., alias="X-User-ID")) -> Dict:
+async def export_consent_records(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-ID"),
+) -> Dict:
     """
     Export user's consent records
     
     GDPR Article 20: Right to data portability.
     Returns all consent records in machine-readable format.
     """
+    user_id = resolve_user_id(authorization, x_user_id)
     manager = ConsentManager(user_id=user_id)
     
+    from datetime import datetime
     try:
         return {
             "user_id": user_id,
-            "export_date": "2025-12-25T00:00:00Z",  # Use datetime.utcnow()
+            "export_date": datetime.utcnow().isoformat() + "Z",
             "policy_version": "1.0",
             "consents": manager.profile.consents,
             "format": "application/json",

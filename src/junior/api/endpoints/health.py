@@ -18,19 +18,28 @@ async def health_check():
     Returns service status and version information
     """
     services = {}
+    degraded_services = []
 
     # Check Groq API
     if settings.groq_api_key:
         services["groq"] = "configured"
     else:
         services["groq"] = "not_configured"
+        degraded_services.append("groq")
 
     # Check Supabase
-    if settings.supabase_url and settings.supabase_key:
-        db_status = get_supabase_client().healthcheck()
-        services["supabase"] = "connected" if db_status.get("ok") else f"degraded: {db_status.get('message')}"
-    else:
-        services["supabase"] = "not_configured"
+    try:
+        if settings.supabase_url and settings.supabase_key:
+            db_status = get_supabase_client().healthcheck()
+            services["supabase"] = "connected" if db_status.get("ok") else f"degraded: {db_status.get('message')}"
+            if not db_status.get("ok"):
+                degraded_services.append("supabase")
+        else:
+            services["supabase"] = "not_configured"
+            degraded_services.append("supabase")
+    except Exception as e:
+        services["supabase"] = f"error: {str(e)[:50]}"
+        degraded_services.append("supabase")
 
     # Check PII redaction
     if settings.enable_pii_redaction:
@@ -38,8 +47,11 @@ async def health_check():
     else:
         services["pii_redaction"] = "disabled"
 
+    # Determine overall status based on critical service health
+    overall_status = "healthy" if not degraded_services else "degraded"
+
     return HealthResponse(
-        status="healthy",
+        status=overall_status,
         version=settings.app_version,
         environment=settings.app_env,
         services=services,

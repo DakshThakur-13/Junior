@@ -35,6 +35,7 @@ export function CaseSelection(props: { onSelectCase: (c: CaseData) => void; onNe
   const [apiCases, setApiCases] = useState<ApiCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -84,18 +85,52 @@ export function CaseSelection(props: { onSelectCase: (c: CaseData) => void; onNe
     [apiCases],
   );
 
+  const filteredCases = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return cases;
+    return cases.filter((c) => {
+      const hay = [c.title, c.caseNumber || '', c.court || '', c.type, c.status].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }, [cases, search]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const el = document.getElementById('case-search-input') as HTMLInputElement | null;
+        el?.focus();
+        el?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen w-full text-legal-text relative overflow-hidden bg-legal-bg">
       <div className="absolute inset-0 container-bg z-0 opacity-50"></div>
       <div className="z-10 w-full max-w-4xl px-4 sm:px-8">
         <h2 className="text-4xl font-bold font-serif mb-12 text-center tracking-tight">Your Cases</h2>
+        <div className="mb-6 flex items-center justify-center">
+          <div className="w-full max-w-xl">
+            <input
+              id="case-search-input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by title, case number, court, status (Ctrl+K)"
+              className="w-full glass-input rounded-xl px-4 py-3 text-sm text-slate-200 border border-white/10 focus:border-legal-gold/40 outline-none"
+              aria-label="Search cases"
+            />
+          </div>
+        </div>
         {loading && <p className="text-center text-slate-400 mb-6 text-sm">Loading live cases...</p>}
         {!loading && error && <p className="text-center text-rose-300 mb-6 text-sm">{error}</p>}
-        {!loading && !error && cases.length === 0 && (
+        {!loading && !error && filteredCases.length === 0 && (
           <p className="text-center text-slate-400 mb-6 text-sm">No cases found yet. Add or upload documents to create case history.</p>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {cases.map((c) => (
+          {filteredCases.map((c) => (
             <button
               type="button"
               key={c.id}

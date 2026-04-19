@@ -48,8 +48,13 @@ class ResearchResponse(BaseModel):
     summary: str
     citations: list[CitationResponse]
     confidence_score: float
+    confidence_band: str = "low"
     iterations: int
     processing_time_ms: int
+    evidence_sufficiency: str = "insufficient"
+    verified_citation_count: int = 0
+    total_citation_count: int = 0
+    ai_disclaimer: str = "AI-assisted output. Verify with official records before filing."
     trace: Optional[list[dict]] = None  # For "Show Logic" feature
 
     class Config:
@@ -180,6 +185,7 @@ class JudgeAnalyticsResponse(BaseModel):
     total_cases_analyzed: int
     patterns: list[dict]
     recommendations: list[str]
+    source_provenance: list[dict] = Field(default_factory=list)
 
 class DevilsAdvocateRequest(BaseModel):
     """Request for Devil's Advocate simulation"""
@@ -193,6 +199,9 @@ class DevilsAdvocateResponse(BaseModel):
     attack_points: list[dict]
     vulnerability_score: float
     preparation_recommendations: list[str]
+    confidence_band: str = "low"
+    evidence_sufficiency: str = "insufficient"
+    ai_disclaimer: str = "AI-assisted adversarial analysis. Not a substitute for advocate judgment."
 
 # ============ Official Sources Schemas ============
 
