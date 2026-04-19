@@ -1211,6 +1211,10 @@ type SourceSearchItem = {
   url?: string;
 };
 
+type WallPendingSuggestion = Connection & {
+  key: string;
+};
+
 function StrategyAnalytics(props: {
   activeCase?: CaseData | null;
   onAddCitationToWall?: (payload: { title: string; content: string; url?: string; citation: string }) => void;
@@ -2745,11 +2749,14 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
 
   // Start with no connections - they should only appear after "Analyze Wall"
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [wallSuggestedConnections, setWallSuggestedConnections] = useState<WallPendingSuggestion[]>([]);
+  const [wallSearchQuery, setWallSearchQuery] = useState('');
 
   // Clear any old cached connections on mount
   useEffect(() => {
     // This ensures we always start fresh with no connections
     setConnections([]);
+    setWallSuggestedConnections([]);
   }, []);
 
   const caseId = props.activeCase?.id ? String(props.activeCase.id) : 'default';
@@ -2807,6 +2814,103 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const [wallIsAnalyzing, setWallIsAnalyzing] = useState(false);
   const [wallNodeSeverity, setWallNodeSeverity] = useState<Record<string, WallInsightSeverity | undefined>>({});
   const [wallAnalyzeStatus, setWallAnalyzeStatus] = useState<'idle' | 'ok' | 'llm_off' | 'backend_off'>('idle');
+
+  const wallRenderedConnections = useMemo(
+    () => [...connections, ...wallSuggestedConnections],
+    [connections, wallSuggestedConnections]
+  );
+
+  const wallSearchMatches = useMemo(() => {
+    const query = wallSearchQuery.trim().toLowerCase();
+    if (!query) return null;
+
+    const matchesText = (value?: string | null) => typeof value === 'string' && value.toLowerCase().includes(query);
+    const matchedIds = new Set<number>();
+
+    for (const node of nodes) {
+      const attachmentMatch = (node.attachments ?? []).some((attachment) =>
+        [attachment.name, attachment.kind, attachment.url].some((field) => matchesText(field))
+      );
+
+      if (
+        matchesText(node.title) ||
+        matchesText(node.type) ||
+        matchesText(node.status) ||
+        matchesText(node.source) ||
+        matchesText(node.content) ||
+        matchesText(node.caseNumber) ||
+        matchesText(node.documentId) ||
+        attachmentMatch
+      ) {
+        matchedIds.add(node.id);
+      }
+    }
+
+    for (const conn of wallRenderedConnections) {
+      if (matchesText(conn.label) || matchesText(conn.reason)) {
+        matchedIds.add(conn.from);
+        matchedIds.add(conn.to);
+      }
+    }
+
+    return matchedIds;
+  }, [nodes, wallRenderedConnections, wallSearchQuery]);
+
+  const getNodeTitle = useCallback(
+    (id: number) => nodes.find((node) => node.id === id)?.title ?? String(id),
+    [nodes]
+  );
+
+  const buildSuggestionKey = useCallback((conn: Pick<Connection, 'from' | 'to' | 'label'>) => {
+    return `${conn.from}->${conn.to}:${conn.label}`;
+  }, []);
+
+  const acceptWallSuggestion = useCallback(
+    (key: string) => {
+      const suggestion = wallSuggestedConnections.find((item) => item.key === key);
+      if (!suggestion) return;
+
+      setWallSuggestedConnections((prev) => prev.filter((item) => item.key !== key));
+
+      setConnections((prev) => {
+        const accepted = { from: suggestion.from, to: suggestion.to, label: suggestion.label, type: 'normal' as const, reason: suggestion.reason, confidence: suggestion.confidence };
+        const acceptedKey = buildSuggestionKey(accepted);
+        const existing = new Set(prev.map((conn) => buildSuggestionKey(conn)));
+        if (existing.has(acceptedKey)) return prev;
+        return [...prev, accepted];
+      });
+    },
+    [buildSuggestionKey]
+  );
+
+  const dismissWallSuggestion = useCallback((key: string) => {
+    setWallSuggestedConnections((prev) => prev.filter((item) => item.key !== key));
+  }, []);
+
+  const acceptAllWallSuggestions = useCallback(() => {
+    setConnections((prev) => {
+      const existing = new Set(prev.map((conn) => buildSuggestionKey(conn)));
+      const nextConnections = [...prev];
+
+      for (const suggestion of wallSuggestedConnections) {
+        const accepted = {
+          from: suggestion.from,
+          to: suggestion.to,
+          label: suggestion.label,
+          type: 'normal' as const,
+          reason: suggestion.reason,
+          confidence: suggestion.confidence,
+        };
+        const acceptedKey = buildSuggestionKey(accepted);
+        if (existing.has(acceptedKey)) continue;
+        existing.add(acceptedKey);
+        nextConnections.push(accepted);
+      }
+
+      return nextConnections;
+    });
+    setWallSuggestedConnections([]);
+  }, [buildSuggestionKey, wallSuggestedConnections]);
 
   const handleAnalyzeWall = async (overrides?: { nodes?: NodeData[]; connections?: Connection[]; silent?: boolean }) => {
     if (wallIsAnalyzing) return;
@@ -2871,10 +2975,13 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
       }
       setWallNodeSeverity(nextSeverity);
 
-      // Merge suggested links into connections (only if both endpoints exist on canvas)
+      // Keep AI suggestions separate from verified links so the user can accept them explicitly.
       const nodeIds = new Set(currentNodes.map((n) => String(n.id)));
-      const existing = new Set(currentConnections.map((c) => `${c.from}->${c.to}:${c.label}:${c.type}`));
-      const toAdd: Connection[] = [];
+      const existing = new Set([
+        ...currentConnections.map((c) => buildSuggestionKey(c)),
+        ...wallSuggestedConnections.map((c) => c.key),
+      ]);
+      const toSuggest: WallPendingSuggestion[] = [];
       for (const link of Array.isArray(data.suggested_links) ? data.suggested_links : []) {
         const source = String(link?.source ?? '');
         const target = String(link?.target ?? '');
@@ -2885,13 +2992,12 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
         const from = Number(source);
         const to = Number(target);
         if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
-        const key = `${from}->${to}:${label}:suggested`;
+        const key = buildSuggestionKey({ from, to, label });
         if (existing.has(key)) continue;
-        toAdd.push({ from, to, label, type: 'suggested', reason, confidence });
+        existing.add(key);
+        toSuggest.push({ from, to, label, type: 'suggested', reason, confidence, key });
       }
-      if (toAdd.length) {
-        setConnections((prev) => [...prev, ...toAdd]);
-      }
+      setWallSuggestedConnections(toSuggest);
 
       // Post summary + next actions to chat (uses existing UX)
       const nextActions = Array.isArray(data.next_actions) ? data.next_actions : [];
@@ -2927,6 +3033,8 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
     if (!props.activeCase?.id || !caseNumber) {
       setNodes([]);
       setConnections([]);
+      setWallSuggestedConnections([]);
+      setWallSearchQuery('');
       return;
     }
 
@@ -3025,11 +3133,13 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
         if (!cancelled) {
           setNodes(mappedNodes);
           setConnections([]);
+          setWallSuggestedConnections([]);
         }
       } catch {
         if (!cancelled) {
           setNodes([]);
           setConnections([]);
+          setWallSuggestedConnections([]);
         }
       }
     };
@@ -3598,7 +3708,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           </div>
 
           <div className="absolute bottom-6 left-6 z-30 glass-panel border border-white/10 rounded-lg px-4 py-2 shadow-xl">
-            <div className="flex items-center gap-4 text-xs text-slate-400">
+            <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
               <span>
                 <strong className="text-slate-300">{nodes.length}</strong> Documents
               </span>
@@ -3608,8 +3718,35 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
               </span>
               <span className="w-px h-4 bg-white/10"></span>
               <span className="text-legal-gold">
-                <strong>{connections.filter((c) => c.type === 'suggested').length}</strong> Suggested
+                <strong>{wallSuggestedConnections.length}</strong> Suggested
               </span>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="search"
+                value={wallSearchQuery}
+                onChange={(e) => setWallSearchQuery(e.target.value)}
+                placeholder="Search nodes, sources, or link reasons"
+                className="w-[280px] max-w-[60vw] rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-[11px] text-slate-200 placeholder-slate-500 focus:outline-none focus:border-legal-gold/40"
+              />
+              {wallSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setWallSearchQuery('')}
+                  className="text-[10px] uppercase tracking-wide px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+                >
+                  Clear
+                </button>
+              )}
+              {wallSuggestedConnections.length > 0 && (
+                <button
+                  type="button"
+                  onClick={acceptAllWallSuggestions}
+                  className="text-[10px] uppercase tracking-wide px-2.5 py-1.5 rounded-lg border border-legal-gold/30 bg-legal-gold/10 text-legal-gold hover:bg-legal-gold/20"
+                >
+                  Accept All
+                </button>
+              )}
             </div>
             {wallAnalyzeStatus === 'llm_off' && (
               <div className="mt-1 text-[11px] text-legal-gold">
@@ -3619,6 +3756,45 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
             {wallAnalyzeStatus === 'backend_off' && (
               <div className="mt-1 text-[11px] text-rose-300">Wall analysis backend is unreachable.</div>
             )}
+            {wallSuggestedConnections.length > 0 && (
+              <div className="mt-3 max-h-52 overflow-y-auto space-y-2 pr-1">
+                {wallSuggestedConnections.slice(0, 4).map((suggestion) => (
+                  <div key={suggestion.key} className="rounded-lg border border-legal-gold/20 bg-legal-gold/5 p-3 text-[11px] text-slate-300">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium text-legal-text truncate">
+                          {getNodeTitle(suggestion.from)} → {getNodeTitle(suggestion.to)}
+                        </div>
+                        <div className="text-slate-400 mt-0.5">{suggestion.label}</div>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-legal-gold/20 bg-black/20 px-2 py-0.5 text-[10px] text-legal-gold">
+                        {typeof suggestion.confidence === 'number' ? `${Math.round(suggestion.confidence * 100)}%` : 'AI'}
+                      </span>
+                    </div>
+                    {suggestion.reason && <div className="mt-2 text-slate-400 leading-relaxed">{suggestion.reason}</div>}
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => acceptWallSuggestion(suggestion.key)}
+                        className="text-[10px] uppercase tracking-wide px-2.5 py-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dismissWallSuggestion(suggestion.key)}
+                        className="text-[10px] uppercase tracking-wide px-2.5 py-1.5 rounded-md border border-white/10 text-slate-400 hover:text-white hover:border-white/20"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {wallSuggestedConnections.length > 4 && (
+                  <div className="text-[10px] text-slate-500 px-1">+ {wallSuggestedConnections.length - 4} more suggestions</div>
+                )}
+              </div>
+            )}
           </div>
 
           <div
@@ -3627,7 +3803,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
               isPanning ? 'transition-none' : 'transition-transform duration-75'
             }`}
           >
-            {connections.map((conn, idx) => (
+            {wallRenderedConnections.map((conn, idx) => (
               <ConnectionLine
                 key={idx}
                 start={getNodePosition(conn.from)}
@@ -3635,6 +3811,9 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
                 label={conn.label}
                 type={conn.type}
                 reason={conn.reason}
+                dimmed={
+                  !!wallSearchMatches && !wallSearchMatches.has(conn.from) && !wallSearchMatches.has(conn.to)
+                }
               />
             ))}
             {nodes.map((node) => (
@@ -3654,6 +3833,8 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
                 }}
                 isRemoveMode={isRemoveMode}
                 insightSeverity={wallNodeSeverity[String(node.id)]}
+                isDimmed={!!wallSearchMatches && !wallSearchMatches.has(node.id)}
+                isMatched={!!wallSearchMatches && wallSearchMatches.has(node.id)}
               />
             ))}
           </div>

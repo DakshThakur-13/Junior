@@ -124,6 +124,11 @@ export function NodeDetailsPanel(props: {
     }
   }, [firstDocumentUrl]);
 
+  const provenanceLinks = useMemo(
+    () => attachments.filter((a) => typeof a.url === 'string' && a.url.trim()),
+    [attachments]
+  );
+
   const handleAskAI = () => {
     if (previewState.status === 'ok' && previewState.data.summary_ai) {
       navigator.clipboard.writeText(`Context from ${previewState.data.title}:\n${previewState.data.summary_ai}`);
@@ -191,6 +196,25 @@ export function NodeDetailsPanel(props: {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Source</div>
+            <div className="text-slate-200 font-medium">{props.node.source || 'Unattributed'}</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Case / Record</div>
+            <div className="text-slate-200 font-medium">{props.node.caseNumber || 'Not linked'}</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Document ID</div>
+            <div className="text-slate-200 font-medium break-all">{props.node.documentId || 'N/A'}</div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Attachments</div>
+            <div className="text-slate-200 font-medium">{attachments.length}</div>
+          </div>
+        </div>
         
         {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-2">
@@ -250,6 +274,32 @@ export function NodeDetailsPanel(props: {
                   <AlertCircle size={16} className="mt-0.5 shrink-0" />
                   <div>
                     <div className="font-medium">Analysis unavailable</div>
+
+                {provenanceLinks.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <Share2 size={12} />
+                      Provenance
+                    </div>
+                    <div className="space-y-2">
+                      {provenanceLinks.map((attachment, idx) => (
+                        <div key={`${attachment.name}-${idx}`} className="flex items-center justify-between gap-3 rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="text-sm text-slate-200 truncate">{attachment.name}</div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{attachment.kind}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => window.open(attachment.url, '_blank', 'noopener,noreferrer')}
+                            className="shrink-0 text-[10px] uppercase tracking-wide px-2.5 py-1 rounded-md border border-legal-gold/20 bg-legal-gold/10 text-legal-gold hover:bg-legal-gold/20"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                     <div className="text-xs opacity-70 mt-1">{previewState.message}</div>
                   </div>
                 </div>

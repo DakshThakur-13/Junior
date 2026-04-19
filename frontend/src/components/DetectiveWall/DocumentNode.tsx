@@ -19,6 +19,8 @@ export function DocumentNode(props: {
   scale: number;
   isRemoveMode: boolean;
   insightSeverity?: WallInsightSeverity;
+  isDimmed?: boolean;
+  isMatched?: boolean;
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, initialX: 0, initialY: 0, hasMoved: false });
@@ -112,7 +114,9 @@ export function DocumentNode(props: {
   return (
     <div
       ref={nodeRef}
-      className={`absolute w-80 group select-none ${zClass} ${cursorClass}`}
+      className={`absolute w-80 group select-none transition-opacity duration-200 ${zClass} ${cursorClass} ${
+        props.isDimmed ? 'opacity-35 saturate-50' : 'opacity-100'
+      } ${props.isMatched ? 'drop-shadow-[0_0_18px_rgba(212,175,55,0.18)]' : ''}`}
       onMouseDown={handleMouseDown}
       role="group"
       aria-label={`${props.title} node`}
@@ -140,7 +144,7 @@ export function DocumentNode(props: {
             props.isSelected
               ? 'border-legal-gold/50 shadow-[0_0_30px_rgba(212,175,55,0.1)]'
               : `border-white/5 hover:border-white/10 shadow-xl ${insightBorderClass}`
-          } ${props.isRemoveMode ? 'group-hover:border-rose-500 group-hover:bg-rose-950/30' : ''}`}
+          } ${props.isMatched ? 'ring-1 ring-legal-gold/30' : ''} ${props.isRemoveMode ? 'group-hover:border-rose-500 group-hover:bg-rose-950/30' : ''}`}
         >
           <div className="p-5">
           <div className="flex justify-between items-start mb-4">
