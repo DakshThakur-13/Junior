@@ -284,14 +284,32 @@ export function ChatPanel(props: {
                   <div className="mt-3 border-t border-white/10 pt-2">
                     <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Legal citations</div>
                     <div className="flex flex-wrap gap-1.5">
-                      {msg.citations.slice(0, 5).map((citation) => (
-                        <span
-                          key={citation}
-                          className="text-[10px] px-2 py-1 rounded-md border border-legal-gold/20 bg-legal-gold/10 text-legal-gold"
-                        >
-                          {citation}
-                        </span>
-                      ))}
+                      {msg.citations.slice(0, 5).map((citation) => {
+                        const linked = msg.citationSources?.find((entry) => entry.citation === citation && entry.url);
+                        const chip = (
+                          <span className="text-[10px] px-2 py-1 rounded-md border border-legal-gold/20 bg-legal-gold/10 text-legal-gold">
+                            {citation}
+                            {linked?.verified ? <span className="ml-1 text-emerald-400">• verified</span> : null}
+                          </span>
+                        );
+
+                        if (!linked) {
+                          return <span key={citation}>{chip}</span>;
+                        }
+
+                        return (
+                          <a
+                            key={citation}
+                            href={linked.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`${linked.title}${linked.court ? ` • ${linked.court}` : ''}`}
+                            className="inline-flex"
+                          >
+                            {chip}
+                          </a>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

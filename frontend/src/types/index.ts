@@ -91,6 +91,13 @@ export type ChatMessage = {
   conflictDetail?: string;
   preservedTerms?: string[];
   citations?: string[];
+  citationSources?: Array<{
+    citation: string;
+    title: string;
+    url: string;
+    court?: string;
+    verified?: boolean;
+  }>;
   sources?: string[];
   suggestedActions?: string[];
 };

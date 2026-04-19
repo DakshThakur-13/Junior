@@ -3312,6 +3312,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           content?: string;
           preserved_terms?: unknown[];
           citations?: unknown[];
+          citation_sources?: unknown[];
           sources?: unknown[];
           suggested_actions?: unknown[];
           error?: string;
@@ -3335,6 +3336,21 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           }
           if (Array.isArray(data.citations)) {
             extras.citations = data.citations.filter((t: unknown): t is string => typeof t === 'string');
+          }
+          if (Array.isArray(data.citation_sources)) {
+            extras.citationSources = data.citation_sources
+              .filter((t: unknown) => typeof t === 'object' && t !== null)
+              .map((entry) => {
+                const candidate = entry as Record<string, unknown>;
+                return {
+                  citation: String(candidate.citation ?? ''),
+                  title: String(candidate.title ?? ''),
+                  url: String(candidate.url ?? ''),
+                  court: candidate.court ? String(candidate.court) : undefined,
+                  verified: candidate.verified === true || candidate.verified === 'true',
+                };
+              })
+              .filter((entry) => entry.citation && entry.url);
           }
           if (Array.isArray(data.sources)) {
             extras.sources = data.sources.filter((t: unknown): t is string => typeof t === 'string');

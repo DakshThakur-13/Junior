@@ -14,6 +14,7 @@ from typing import AsyncGenerator
 from junior.core import get_logger, settings
 from junior.core.types import Language
 from junior.services.conversational_chat import ConversationalChat
+from junior.services.free_legal_sources import get_free_legal_client
 from junior.services.translator import TranslationService
 from junior.api.schemas import ChatRequest, ChatMessage, ChatSession
 
@@ -26,6 +27,7 @@ chat_service = ConversationalChat()
 # Import shared session store from chat.py
 from . import chat
 active_sessions = chat.active_sessions
+citation_resolution_cache: dict[str, list[dict[str, str]]] = {}
 
 
 URL_RE = re.compile(r"https?://[^\s)\]>]+", re.IGNORECASE)
@@ -55,6 +57,43 @@ def _extract_legal_citations(text: str) -> list[str]:
             seen.add(cleaned)
             citations.append(cleaned)
     return citations[:8]
+
+
+async def _resolve_citation_sources(citations: list[str]) -> list[dict[str, str]]:
+    client = get_free_legal_client()
+    resolved: list[dict[str, str]] = []
+
+    for citation in citations[:4]:
+        cache_key = citation.lower().strip()
+        if cache_key in citation_resolution_cache:
+            resolved.extend(citation_resolution_cache[cache_key])
+            continue
+
+        matches: list[dict[str, str]] = []
+        try:
+            results = await client.search(citation, max_results=1)
+        except Exception as exc:
+            logger.debug(f"Citation lookup failed for {citation}: {exc}")
+            results = []
+
+        for result in results[:1]:
+            url = str(getattr(result, "url", "") or "").strip()
+            title = str(getattr(result, "title", "") or citation).strip()
+            court = str(getattr(result, "court", "") or "").strip()
+            if not url:
+                continue
+            matches.append({
+                "citation": citation,
+                "title": title,
+                "url": url,
+                "court": court,
+                "verified": "true",
+            })
+
+        citation_resolution_cache[cache_key] = matches
+        resolved.extend(matches)
+
+    return resolved
 
 
 def _suggest_next_actions(user_message: str, final_response: str) -> list[str]:
@@ -288,10 +327,11 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
                 preserved_terms = []
             yield f"data: {json.dumps({'type': 'meta', 'preserved_terms': preserved_terms})}\n\n"
 
-        sources = _extract_sources(final_response)
         legal_citations = _extract_legal_citations(final_response)
+        citation_sources = await _resolve_citation_sources(legal_citations)
+        sources = _extract_sources(final_response)
         suggested_actions = _suggest_next_actions(request.message, final_response) if request.suggest_actions else []
-        yield f"data: {json.dumps({'type': 'meta', 'sources': sources, 'citations': legal_citations, 'suggested_actions': suggested_actions})}\n\n"
+        yield f"data: {json.dumps({'type': 'meta', 'sources': sources, 'citations': legal_citations, 'citation_sources': citation_sources, 'suggested_actions': suggested_actions})}\n\n"
         
         # Save assistant message to session
         assistant_message = ChatMessage(
