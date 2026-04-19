@@ -116,37 +116,46 @@ Example bad suggestions:
         detective_wall_nodes: list[dict],
         recent_documents: list[dict],
     ) -> str:
-        """Build analysis context from case state"""
-        
-        # Recent conversation (last 5 messages)
-        recent_msgs = conversation_history[-5:] if conversation_history else []
-        chat_summary = "\n".join([
-            f"- {msg.get('role', 'user')}: {msg.get('content', '')[:100]}"
-            for msg in recent_msgs
-        ])
-        
-        # Detective Wall summary
+        """Build a compact analysis context from case state."""
+
+        def _clip(text: str, max_len: int) -> str:
+            text = (text or "").strip()
+            if len(text) <= max_len:
+                return text
+            return text[: max_len - 3] + "..."
+
+        # Keep context compact to stay under model/token limits.
+        recent_msgs = conversation_history[-3:] if conversation_history else []
+        chat_summary = "\n".join(
+            [
+                f"- {msg.get('role', 'user')}: {_clip(str(msg.get('content', '')), 80)}"
+                for msg in recent_msgs
+            ]
+        )
+
         nodes_summary = ""
         if detective_wall_nodes:
             uncited = [
-                n for n in detective_wall_nodes
+                n
+                for n in detective_wall_nodes
                 if not n.get("source") and n.get("type") in ["Evidence", "Precedent"]
             ]
             nodes_summary = f"\nTotal nodes: {len(detective_wall_nodes)}\n"
             nodes_summary += f"Uncited evidence nodes: {len(uncited)}\n"
-            
+
             if uncited:
                 nodes_summary += "Uncited nodes:\n"
-                for n in uncited[:3]:  # Show first 3
-                    nodes_summary += f"  - #{n.get('id')}: {n.get('title', '')[:50]}\n"
-        
-        # Documents summary
+                for n in uncited[:2]:
+                    nodes_summary += (
+                        f"  - #{n.get('id')}: {_clip(str(n.get('title', '')), 40)}\n"
+                    )
+
         docs_summary = ""
         if recent_documents:
             docs_summary = f"\nRecent uploads ({len(recent_documents)}):\n"
-            for doc in recent_documents[:5]:  # Show first 5
-                docs_summary += f"  - {doc.get('title', 'Untitled')[:50]}\n"
-        
+            for doc in recent_documents[:3]:
+                docs_summary += f"  - {_clip(str(doc.get('title', 'Untitled')), 40)}\n"
+
         context = f"""CASE ANALYSIS CONTEXT:
 
 RECENT CONVERSATION:
@@ -160,8 +169,9 @@ UPLOADED DOCUMENTS:
 
 Based on this, what should I proactively suggest to the lawyer?
 """
-        
-        return context
+
+        # Hard cap final context size to reduce request-size/token-pressure failures.
+        return _clip(context, 900)
 
 
 # Global instance

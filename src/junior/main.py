@@ -98,10 +98,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️  Glossary initialization warning: {e}")
 
+    # Initialize Redis
+    if settings.redis_enabled:
+        try:
+            from junior.db import get_redis_client
+            redis_client = await get_redis_client()
+            await redis_client.connect()
+            health = await redis_client.health_check()
+            if health:
+                logger.info("✅ Redis configured and ready")
+            else:
+                logger.warning("⚠️  Redis health check failed")
+        except Exception as e:
+            logger.warning(f"⚠️  Redis initialization failed: {e}")
+    else:
+        logger.info("ℹ️  Redis disabled in settings")
+
     yield
 
-    # Shutdown
-    logger.info("Shutting down Junior...")
+    # Shutdown - Close Redis connection
+    try:
+        from junior.db import get_redis_client
+        redis_client = await get_redis_client()
+        await redis_client.disconnect()
+    except Exception as e:
+        logger.warning(f"Redis disconnect error: {e}")
 
 # Create FastAPI app
 app = FastAPI(

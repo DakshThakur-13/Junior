@@ -267,7 +267,7 @@ class LawyerProtocolsResponse(BaseModel):
 # ============ Detective Wall Schemas ============
 
 class DetectiveWallNode(BaseModel):
-    """A node on the detective wall canvas"""
+    """A node on the detective wall canvas with enhanced provenance."""
     id: str
     title: str
     type: str  # Evidence | Precedent | Statement | Strategy | etc.
@@ -275,24 +275,60 @@ class DetectiveWallNode(BaseModel):
     date: Optional[str] = None
     content: Optional[str] = None
 
+    # ===== Enhanced Provenance Fields =====
+    # Source & Document Reference
+    source_document_id: Optional[str] = None  # ID of source document in database
+    document_title: Optional[str] = None  # Human-readable document name
+    document_url: Optional[str] = None  # URL or path to document
+
+    # Location Information
+    page_number: Optional[int] = None  # Page number (1-indexed)
+    paragraph_number: Optional[int] = None  # Paragraph within page
+    line_number: Optional[int] = None  # Line number for precision
+
+    # Quote & Context
+    quote_text: Optional[str] = None  # Exact quote from source
+    context_before: Optional[str] = None  # 50 chars before quote
+    context_after: Optional[str] = None  # 50 chars after quote
+
+    # Metadata
+    source_type: Optional[str] = None  # judgment | statute | article | precedent | etc.
+    court: Optional[str] = None  # Court name if judgment
+    case_number: Optional[str] = None  # Case number if judgment
+    judge_name: Optional[str] = None  # Judge name if judgment
+    confidence_score: Optional[float] = None  # 0.0-1.0 confidence in accuracy
+    is_manual: Optional[bool] = None  # True if manually added by user
+
+    # Attachments
+    attachments: Optional[list[dict]] = None  # [{"name": "...", "url": "...", "size": ...}]
+
 class DetectiveWallEdge(BaseModel):
-    """A relationship between two nodes"""
-    source: str
-    target: str
-    label: str
+    """A relationship between two nodes with enhanced metadata."""
+    source: str  # Source node ID
+    target: str  # Target node ID
+    label: str  # Relationship type: supports | contradicts | precedent | timeline | etc.
+    
+    # Enhanced relationship information
+    edge_type: Optional[str] = None  # supports | contradicts | precedent | timeline | relevant | etc.
+    strength: Optional[str] = None  # strong | moderate | weak
+    is_verified: Optional[bool] = None  # Verified by user vs AI-suggested
+    evidence_count: Optional[int] = None  # How many supporting pieces
+    quote_ref: Optional[list[str]] = None  # References to quotes supporting this link
 
 class DetectiveWallInsight(BaseModel):
     title: str
     detail: str
     severity: str  # low | medium | high
     node_ids: list[str] = Field(default_factory=list)
+    suggested_action: Optional[str] = None  # What to do about this insight
 
 class DetectiveWallSuggestedLink(BaseModel):
     source: str
     target: str
     label: str
-    confidence: float = 0.0
+    confidence: float = 0.0  # 0.0-1.0
     reason: Optional[str] = None
+    evidence: Optional[list[str]] = None  # Supporting evidence for suggestion
 
 class DetectiveWallAnalyzeRequest(BaseModel):
     case_context: Optional[str] = None
@@ -304,6 +340,12 @@ class DetectiveWallAnalyzeResponse(BaseModel):
     insights: list[DetectiveWallInsight] = Field(default_factory=list)
     suggested_links: list[DetectiveWallSuggestedLink] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
+    
+    # Metadata for frontend
+    analysis_timestamp: Optional[str] = None  # When analysis was performed
+    cache_status: Optional[str] = None  # "hit" | "miss" | "fresh"
+    snapshot_id: Optional[str] = None  # ID for saving/loading wall state
+    proactive_suggestions_count: Optional[int] = None  # Number of AI suggestions
 
 # ============ Health Check ============
 

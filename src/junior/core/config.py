@@ -64,6 +64,19 @@ class Settings(BaseSettings):
     supabase_key: str = Field(default="")
     supabase_service_key: str = Field(default="")
 
+    # Redis Configuration (for caching, job queue, session management)
+    redis_enabled: bool = True
+    redis_url: str = Field(default="redis://localhost:6379/0")
+    redis_db: int = 0
+    redis_password: str = Field(default="")
+    redis_cache_ttl: int = 3600  # 1 hour
+    redis_wall_cache_ttl: int = 1800  # 30 minutes
+    redis_suggestion_cache_ttl: int = 900  # 15 minutes
+
+    # Celery Configuration
+    celery_broker_url: str = Field(default="redis://localhost:6379/0")
+    celery_result_backend: str = Field(default="redis://localhost:6379/0")
+
     # AI Models - Multi-Model Architecture
     # Legacy default (kept for backward compatibility)
     default_llm_model: str = "llama-3.3-70b-versatile"
