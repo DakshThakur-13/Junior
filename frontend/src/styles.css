@@ -35,6 +35,10 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
+.chat-panel-shell {
+  z-index: 9999;
+}
+
 .glass-input {
   background: rgba(11, 17, 32, 0.6);
   -webkit-backdrop-filter: blur(4px);

@@ -90,6 +90,7 @@ export type ChatMessage = {
   hasConflict?: boolean;
   conflictDetail?: string;
   preservedTerms?: string[];
+  citations?: string[];
   sources?: string[];
   suggestedActions?: string[];
 };

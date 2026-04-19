@@ -3104,6 +3104,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   const renderLegalTerms = useLegalTermRenderer();
   const streamAbortRef = useRef<AbortController | null>(null);
   const chatSessionStorageKey = `${chatStorageKey}:sessionId`;
+  const lastUserPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
     setMessages(loadStoredMessages(chatStorageKey) ?? defaultWelcome);
@@ -3240,6 +3241,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
   };
 
   const handleSendMessage = async (message: string) => {
+    lastUserPromptRef.current = message;
     const userMessageId = `user-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const assistantMessageId = `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const controller = new AbortController();
@@ -3309,6 +3311,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           session_id?: string;
           content?: string;
           preserved_terms?: unknown[];
+          citations?: unknown[];
           sources?: unknown[];
           suggested_actions?: unknown[];
           error?: string;
@@ -3330,11 +3333,14 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           if (Array.isArray(data.preserved_terms)) {
             extras.preservedTerms = data.preserved_terms.filter((t): t is string => typeof t === 'string');
           }
+          if (Array.isArray(data.citations)) {
+            extras.citations = data.citations.filter((t: unknown): t is string => typeof t === 'string');
+          }
           if (Array.isArray(data.sources)) {
-            extras.sources = data.sources.filter((t): t is string => typeof t === 'string');
+            extras.sources = data.sources.filter((t: unknown): t is string => typeof t === 'string');
           }
           if (Array.isArray(data.suggested_actions)) {
-            extras.suggestedActions = data.suggested_actions.filter((t): t is string => typeof t === 'string');
+            extras.suggestedActions = data.suggested_actions.filter((t: unknown): t is string => typeof t === 'string');
           }
           applyAssistantUpdate(fullResponse, extras);
           return;
@@ -3388,6 +3394,13 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
 
   const handleStopResponse = () => {
     streamAbortRef.current?.abort();
+  };
+
+  const handleRetryLast = () => {
+    const lastPrompt = lastUserPromptRef.current;
+    if (lastPrompt) {
+      void handleSendMessage(lastPrompt);
+    }
   };
 
   const getNodePosition = (id: number) => {
@@ -3660,6 +3673,7 @@ function DetectiveWall(props: { onBack: () => void; activeCase?: CaseData | null
           }}
           messages={messages}
           onSendMessage={handleSendMessage}
+          onRetryLast={handleRetryLast}
           onStopResponse={handleStopResponse}
           isLoading={isLoading}
           suggestActions={suggestActions}

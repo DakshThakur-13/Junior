@@ -10,6 +10,7 @@ export function ChatPanel(props: {
   toggleChat: () => void;
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
+  onRetryLast: () => void;
   onStopResponse: () => void;
   isLoading: boolean;
   suggestActions: boolean;
@@ -146,7 +147,7 @@ export function ChatPanel(props: {
   if (!props.isOpen) return null;
 
   return (
-    <div className="fixed right-0 top-0 h-full w-full sm:w-[400px] glass-panel border-l border-white/10 flex flex-col shadow-2xl" style={{ zIndex: 9999 }}>
+    <div className="chat-panel-shell fixed right-0 top-0 h-full w-full sm:w-[400px] glass-panel border-l border-white/10 flex flex-col shadow-2xl">
       <div className="p-4 border-b border-white/10 flex flex-col gap-3 bg-legal-surface/50">
         {/* Header row with title and close button */}
         <div className="flex justify-between items-center">
@@ -213,6 +214,15 @@ export function ChatPanel(props: {
           >
             {props.suggestActions ? 'Hints On' : 'Hints Off'}
           </button>
+          <button
+            type="button"
+            onClick={props.onRetryLast}
+            disabled={props.isLoading || isTranscribing || props.messages.length < 2}
+            className="text-[10px] uppercase tracking-wide px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-legal-gold hover:border-legal-gold/40 disabled:opacity-50"
+            title="Retry the last prompt"
+          >
+            Retry
+          </button>
         </div>
       </div>
 
@@ -266,6 +276,21 @@ export function ChatPanel(props: {
                         >
                           {src}
                         </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {msg.role === 'assistant' && Array.isArray(msg.citations) && msg.citations.length > 0 && (
+                  <div className="mt-3 border-t border-white/10 pt-2">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Legal citations</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {msg.citations.slice(0, 5).map((citation) => (
+                        <span
+                          key={citation}
+                          className="text-[10px] px-2 py-1 rounded-md border border-legal-gold/20 bg-legal-gold/10 text-legal-gold"
+                        >
+                          {citation}
+                        </span>
                       ))}
                     </div>
                   </div>

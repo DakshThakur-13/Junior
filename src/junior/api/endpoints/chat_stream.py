@@ -29,6 +29,10 @@ active_sessions = chat.active_sessions
 
 
 URL_RE = re.compile(r"https?://[^\s)\]>]+", re.IGNORECASE)
+LEGAL_CITATION_RE = re.compile(
+    r"\b(?:AIR\s+\d{4}\s+[A-Z]{2,}\s+\d+|\(\d{4}\)\s*\d+\s*SCC\s*\d+|\d{4}\s*\(\d+\)\s*SCR\s*\d+|\bSCC\s*OnLine\s*\w+\s*\d+|\b\d{4}\s*\d+\s*SCR\s*\d+)\b",
+    re.IGNORECASE,
+)
 
 
 def _extract_sources(text: str) -> list[str]:
@@ -40,6 +44,17 @@ def _extract_sources(text: str) -> list[str]:
             seen.add(cleaned)
             sources.append(cleaned)
     return sources[:5]
+
+
+def _extract_legal_citations(text: str) -> list[str]:
+    citations: list[str] = []
+    seen: set[str] = set()
+    for match in LEGAL_CITATION_RE.findall(text or ""):
+        cleaned = " ".join(match.split())
+        if cleaned not in seen:
+            seen.add(cleaned)
+            citations.append(cleaned)
+    return citations[:8]
 
 
 def _suggest_next_actions(user_message: str, final_response: str) -> list[str]:
@@ -274,8 +289,9 @@ async def stream_chat_response(request: ChatRequest) -> AsyncGenerator[str, None
             yield f"data: {json.dumps({'type': 'meta', 'preserved_terms': preserved_terms})}\n\n"
 
         sources = _extract_sources(final_response)
+        legal_citations = _extract_legal_citations(final_response)
         suggested_actions = _suggest_next_actions(request.message, final_response) if request.suggest_actions else []
-        yield f"data: {json.dumps({'type': 'meta', 'sources': sources, 'suggested_actions': suggested_actions})}\n\n"
+        yield f"data: {json.dumps({'type': 'meta', 'sources': sources, 'citations': legal_citations, 'suggested_actions': suggested_actions})}\n\n"
         
         # Save assistant message to session
         assistant_message = ChatMessage(
